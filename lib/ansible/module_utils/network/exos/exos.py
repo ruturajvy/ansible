@@ -28,74 +28,154 @@
 import json
 from ansible.module_utils._text import to_text
 from ansible.module_utils.basic import env_fallback, return_values
-from ansible.module_utils.network.common.utils import to_list
+from ansible.module_utils.network.common.utils import to_list, ComplexList
 from ansible.module_utils.connection import Connection
 
-_DEVICE_CONFIGS = {}
+_DEVICE_CONNECTION = None
+
+class Cli:
+    def __init__(self, module):
+        self._module = module
+        self._device_configs = {}
+        self._connection = None
+
+    def _get_connection(self):
+        if self._connection:
+            return self._connection
+        self._connection = Connection(self._module._socket_path)
+
+        return self._connection
+
+    def get_config(self, flags=None):
+        flags = [] if flags is None else flags
+        try:
+            return self._device_configs
+        except KeyError:
+            connection = self._get_connection()
+            try:
+                out = connection.get_config(flags=flags)
+            except ConnectionError as exc:
+                self._module.fail_json(msg=to_text(exc, errors='surrogate_then_replace'))
+            cfg = to_text(out, errors='surrogate_then_replace').strip()
+            self._device_configs = cfg
+            return cfg
 
 
-def get_connection(module):
-    if hasattr(module, '_exos_connection'):
-        return module._exos_connection
+    def run_commands(self, commands, check_rc=True):
+        responses = list()
+        connection = self._get_connection()
 
-    capabilities = get_capabilities(module)
-    network_api = capabilities.get('network_api')
+        for cmd in to_list(commands):
+            if isinstance(cmd, dict):
+                command = cmd['command']
+                prompt = cmd['prompt']
+                answer = cmd['answer']
+            else:
+                command = cmd
+                prompt = None
+                answer = None
+            try:
+                response = connection.get(command, prompt, answer)
+                response = to_text(response, errors='surrogate_or_strict')
+            except ConnectionError as exc:
+                self._module.fail_json(msg=to_text(exc, errors="surrogate_then_replace"))
+            except UnicodeError:
+                self._module.fail_json(msg=u'Failed to decode output from %s: %s' % (cmd, to_text(response)))
+            responses.append(response)
 
-    if network_api == 'cliconf':
-        module._exos_connection = Connection(module._socket_path)
-    else:
-        module.fail_json(msg='Invalid connection type %s' % network_api)
+        return responses
 
-    return module._exos_connection
+
+    def load_config(self, commands):
+        connection = self._get_connection()
+        out = connection.edit_config(commands)
+
+    def get_capabilities(self):
+        connection = self._get_connection()
+        return json.loads(connection.get_capabilities())
+
+
+
+
+
+
+
+class HttpApi:
+    def __init__(self, module):
+        self._module = module
+        self._device_configs = {}
+        self._connection_obj = None
+
+    @property
+    def _connection(self):
+        if not self._connection_obj:
+            self._connection_obj = Connection(self._module._socket_path)
+
+        return self._connection_obj
+
+
+    def run_commands(self, requests, check_rc=True):
+        pass
+
+    def get_capabilities(self):
+        """Returns platform info of the remove device
+        """
+        try:
+            capabilities = self._connection.get_capabilities()
+        except ConnectionError as exc:
+            self._module.fail_json(msg=to_text(exc, errors='surrogate_then_replace'))
+
+        return json.loads(capabilities)
+
+    def load_config(self, commands):
+        pass
 
 
 def get_capabilities(module):
-    if hasattr(module, '_exos_capabilities'):
-        return module._exos_capabilities
-
-    capabilities = Connection(module._socket_path).get_capabilities()
-    module._exos_capabilities = json.loads(capabilities)
-
-    return module._exos_capabilities
+    conn = get_connection(module)
+    return conn.get_capabilities()
 
 
-def get_config(module, flags=None):
-    global _DEVICE_CONFIGS
-
-    if _DEVICE_CONFIGS != {}:
-        return _DEVICE_CONFIGS
-    else:
-        connection = get_connection(module)
-        out = connection.get_config()
-        cfg = to_text(out, errors='surrogate_then_replace').strip()
-        _DEVICE_CONFIGS = cfg
-        return cfg
+def load_config(module, config):
+    conn = get_connection(module)
+    return conn.load_config(config)
 
 
 def run_commands(module, commands, check_rc=True):
-    responses = list()
-    connection = get_connection(module)
+    conn = get_connection(module)
+    #TO DO: return conn.run_commands(to_command(commands), check_rc=check_rc)
+    return conn.run_commands(commands, check_rc=check_rc)
 
-    for cmd in to_list(commands):
-        if isinstance(cmd, dict):
-            command = cmd['command']
-            prompt = cmd['prompt']
-            answer = cmd['answer']
+
+def get_config(module, flags=None):
+    flags = None if flags is None else flags
+
+    conn = get_connection(module)
+    return conn.get_config(flags)
+
+def to_command(module, commands):
+    transform = ComplexList(dict(
+        command=dict(key=True),
+        output=dict(default='json'),
+        prompt=dict(type='list'),
+        answer=dict(type='list'),
+        sendonly=dict(type='bool', default=False),
+        check_all=dict(type='bool', default=False),
+    ), module)
+
+    commands = transform(to_list(commands))
+
+
+def get_connection(module):
+    global _DEVICE_CONNECTION
+    if not _DEVICE_CONNECTION:
+        connection_proxy = Connection(module._socket_path)
+        cap = json.loads(connection_proxy.get_capabilities())
+        if cap['network_api'] == 'cliconf':
+            conn = Cli(module)
+        elif cap['network_api'] == 'exosapi':
+            conn = HttpApi(module)
         else:
-            command = cmd
-            prompt = None
-            answer = None
-        out = connection.get(command, prompt, answer)
-
-        try:
-            out = to_text(out, errors='surrogate_or_strict')
-        except UnicodeError:
-            module.fail_json(msg=u'Failed to decode output from %s: %s' % (cmd, to_text(out)))
-        responses.append(out)
-
-    return responses
-
-
-def load_config(module, commands):
-    connection = get_connection(module)
-    out = connection.edit_config(commands)
+            module.fail_json(msg='Invalid connection type %s' % cap['network_api'])
+        _DEVICE_CONNECTION = conn
+    return _DEVICE_CONNECTION

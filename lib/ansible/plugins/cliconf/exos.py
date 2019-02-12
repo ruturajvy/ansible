@@ -70,14 +70,14 @@ class Cliconf(CliconfBase):
         else:
             cmd = 'debug cfgmgr show configuration file'
             reply = self.get('show switch | include "Config Selected"')
+            # DEFAULTS??
             data = to_text(reply, errors='surrogate_or_strict').strip()
             match = re.search(r': +(\S+)\.cfg', data)
             if match:
                 cmd += ' '.join(match.group(1))
                 cmd = cmd.strip()
 
-        flags = [] if flags is None else flags
-        cmd += ' '.join(flags)
+        cmd += ' '.join(to_list(flags))
         cmd = cmd.strip()
 
         return self.send_command(cmd)
@@ -106,12 +106,12 @@ class Cliconf(CliconfBase):
             'supports_commit': False,
             'supports_rollback': False,
             'supports_defaults': True,
-            'supports_onbox_diff': False,
+            'supports_onbox_diff': True,
             'supports_commit_comment': False,
             'supports_multiline_delimiter': False,
             'supports_diff_match': True,
             'supports_diff_ignore_lines': True,
-            'supports_generate_diff': True,
+            'supports_generate_diff': False,
             'supports_replace': True
         }
 

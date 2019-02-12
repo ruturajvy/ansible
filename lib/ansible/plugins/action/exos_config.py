@@ -19,6 +19,7 @@
 from __future__ import (absolute_import, division, print_function)
 __metaclass__ = type
 
+from ansible import constants as C
 from ansible.plugins.action.network import ActionModule as ActionNetworkModule
 
 
@@ -29,3 +30,29 @@ class ActionModule(ActionNetworkModule):
 
         self._config_module = True
         return super(ActionModule, self).run(task_vars=task_vars)
+
+
+    @staticmethod
+    def exosapi_implementation(provider, play_context):
+        provider['transport'] = 'exosapi'
+
+        if provider.get('host') is None:
+            provider['host'] = play_context.remote_addr
+
+        if provider.get('port') is None:
+            default_port = 443 if provider['use_ssl'] else 80
+            provider['port'] = int(play_context.port or default_port)
+
+        if provider.get('timeout') is None:
+            provider['timeout'] = C.PERSISTENT_COMMAND_TIMEOUT
+
+        if provider.get('username') is None:
+            provider['username'] = play_context.connection_user
+
+        if provider.get('password') is None:
+            provider['password'] = play_context.password
+
+        if provider.get('use_ssl') is None:
+            provider['use_ssl'] = False
+
+        return provider
