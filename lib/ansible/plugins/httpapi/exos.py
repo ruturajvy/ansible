@@ -57,8 +57,9 @@ class HttpApi(HttpApiBase):
 
     def login(self, username, password):
         auth_path = '/auth/token'
-        credentials = { 'username': username, 'password': password }
-        self.send_request(data=None, path=auth_path, method='GET', headers=credentials)
+        contentType = {'content-type': 'application/json'}
+        credentials = {'username': username, 'password': password }
+        self.send_request(data=json.dumps(credentials), path=auth_path, method='POST', headers=contentType)
 
     def logout(self):
         pass

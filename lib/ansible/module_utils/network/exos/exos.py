@@ -29,7 +29,7 @@ import json
 from ansible.module_utils._text import to_text
 from ansible.module_utils.basic import env_fallback, return_values
 from ansible.module_utils.network.common.utils import to_list, ComplexList
-from ansible.module_utils.connection import Connection
+from ansible.module_utils.connection import Connection, ConnectionError
 
 _DEVICE_CONNECTION = None
 
@@ -62,29 +62,12 @@ class Cli:
 
 
     def run_commands(self, commands, check_rc=True):
-        responses = list()
         connection = self._get_connection()
-
-        for cmd in to_list(commands):
-            if isinstance(cmd, dict):
-                command = cmd['command']
-                prompt = cmd['prompt']
-                answer = cmd['answer']
-            else:
-                command = cmd
-                prompt = None
-                answer = None
-            try:
-                response = connection.get(command, prompt, answer)
-                response = to_text(response, errors='surrogate_or_strict')
-            except ConnectionError as exc:
-                self._module.fail_json(msg=to_text(exc, errors="surrogate_then_replace"))
-            except UnicodeError:
-                self._module.fail_json(msg=u'Failed to decode output from %s: %s' % (cmd, to_text(response)))
-            responses.append(response)
-
-        return responses
-
+        try:
+            response = connection.run_commands(commands=self.to_command(commands), check_rc=check_rc)
+        except ConnectionError as exc:
+            self._module.fail_json(msg=to_text(exc, errors='surrogate_then_replace'))
+        return response
 
     def load_config(self, commands):
         connection = self._get_connection()
@@ -94,6 +77,15 @@ class Cli:
         connection = self._get_connection()
         return json.loads(connection.get_capabilities())
 
+    def to_command(self, commands):
+        transform = ComplexList(dict(
+            command=dict(key=True),
+            prompt=dict(type='list'),
+            answer=dict(type='list'),
+            sendonly=dict(type='bool', default=False),
+            check_all=dict(type='bool', default=False),
+        ), self._module)
+        return transform(to_list(commands))
 
 
 
@@ -143,27 +135,13 @@ def load_config(module, config):
 
 def run_commands(module, commands, check_rc=True):
     conn = get_connection(module)
-    #TO DO: return conn.run_commands(to_command(commands), check_rc=check_rc)
     return conn.run_commands(commands, check_rc=check_rc)
 
 
 def get_config(module, flags=None):
     flags = None if flags is None else flags
-
     conn = get_connection(module)
     return conn.get_config(flags)
-
-def to_command(module, commands):
-    transform = ComplexList(dict(
-        command=dict(key=True),
-        output=dict(default='json'),
-        prompt=dict(type='list'),
-        answer=dict(type='list'),
-        sendonly=dict(type='bool', default=False),
-        check_all=dict(type='bool', default=False),
-    ), module)
-
-    commands = transform(to_list(commands))
 
 
 def get_connection(module):
