@@ -78,7 +78,7 @@ class HttpApi(HttpApiBase):
             raise ConnectionError('Response was not valid JSON, got {0}'.format(
                 to_text(response_data.getvalue())
             ))
-        return response_data
+        return handle_response(response_data)
 
     def run_commands(self, commands, check_rc=True):
         if commands is None:
@@ -96,7 +96,7 @@ class HttpApi(HttpApiBase):
             try:
                 response_data = json.loads(to_text(response_data.getvalue()))
             except ValueError:
-                raise ConnectionError('Response was not valid JSON, got {0}'.format(
+                raise ConnectionError('Response was not valid JSON, got {0} !!'.format(
                     to_text(response_data.getvalue())
                 ))
             responses.append(response_data)
@@ -152,3 +152,7 @@ class HttpApi(HttpApiBase):
 
 def request_builder(command, reqid=None):
     return json.dumps(dict(jsonrpc='2.0', id=reqid, method='cli', params=list(command)))
+
+def handle_response(response):
+    # TO DO
+    return response
