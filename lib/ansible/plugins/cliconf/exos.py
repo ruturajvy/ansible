@@ -159,5 +159,6 @@ class Cliconf(CliconfBase):
         result = super(Cliconf, self).get_capabilities()
         result['rpc'] += ['run_commmands']
         result['device_operations'] = self.get_device_operations()
+        result['device_info'] = self.get_device_info()
         result.update(self.get_option_values())
         return json.dumps(result)
