@@ -40,10 +40,8 @@ class Cli:
         self._connection = None
 
     def _get_connection(self):
-        if self._connection:
-            return self._connection
-        self._connection = Connection(self._module._socket_path)
-
+        if not self._connection:
+            self._connection = Connection(self._module._socket_path)
         return self._connection
 
     def get_config(self, flags=None):
@@ -76,12 +74,6 @@ class Cli:
     def get_capabilities(self):
         connection = self._get_connection()
         return json.loads(connection.get_capabilities())
-
-
-
-
-
-
 
 class HttpApi:
     def __init__(self, module):
