@@ -61,7 +61,7 @@ class HttpApi(HttpApiBase):
         auth_path = '/auth/token'
         contentType = {'content-type': 'application/json'}
         credentials = {'username': username, 'password': password }
-        self.send_request(data=json.dumps(credentials), path=auth_path, method='POST', headers=contentType)
+        self.send_request(path=auth_path, data=json.dumps(credentials), method='POST', headers=contentType)
 
     def logout(self):
         pass
@@ -69,8 +69,7 @@ class HttpApi(HttpApiBase):
     def handle_httperror(self, exc):
         return False
 
-    def send_request(self, data, **message_kwargs):
-        path = message_kwargs.pop('path')
+    def send_request(self, path, data=None, method='GET', **message_kwargs):
         response, response_data = self.connection.send(path, data, cookies=self._auth_token, **message_kwargs)
         try:
             response_data = json.loads(to_text(response_data.getvalue()))
@@ -78,7 +77,7 @@ class HttpApi(HttpApiBase):
             raise ConnectionError('Response was not valid JSON, got {0}'.format(
                 to_text(response_data.getvalue())
             ))
-        return handle_response(response_data)
+        return response_data
 
     def run_commands(self, commands, check_rc=True):
         if commands is None:
@@ -96,10 +95,10 @@ class HttpApi(HttpApiBase):
             try:
                 response_data = json.loads(to_text(response_data.getvalue()))
             except ValueError:
-                raise ConnectionError('Response was not valid JSON, got {0} !!'.format(
+                raise ConnectionError('Response was not valid JSON, got {0}'.format(
                     to_text(response_data.getvalue())
                 ))
-            responses.append(response_data)
+            responses.append(handle_response(response_data))
         return responses
 
     def get_device_info(self):
@@ -151,8 +150,16 @@ class HttpApi(HttpApiBase):
         return json.dumps(result)
 
 def request_builder(command, reqid=None):
-    return json.dumps(dict(jsonrpc='2.0', id=reqid, method='cli', params=list(command)))
+    return json.dumps(dict(jsonrpc='2.0', id=reqid, method='cli', params=to_list(command)))
 
 def handle_response(response):
-    # TO DO
-    return response
+    result = {}
+    if 'result' in response:
+        for item in response['result']:
+            if 'CLIoutput' in item:
+                result['CLIoutput'] = item['CLIoutput'][0]
+            if 'status' in item:
+                result['status'] = item['status']
+    if 'status' in result and result['status'] == 'ERROR':
+        raise ConnectionError(result['CLIoutput'])
+    return result['CLIoutput']

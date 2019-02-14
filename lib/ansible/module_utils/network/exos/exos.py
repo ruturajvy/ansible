@@ -29,6 +29,7 @@ import json
 from ansible.module_utils._text import to_text
 from ansible.module_utils.basic import env_fallback, return_values
 from ansible.module_utils.network.common.utils import to_list, ComplexList
+from ansible.module_utils.common._collections_compat import Mapping
 from ansible.module_utils.connection import Connection, ConnectionError
 
 _DEVICE_CONNECTION = None
@@ -58,6 +59,8 @@ class Cli:
             self._device_configs = cfg
             return cfg
 
+    def send_requests(self, requests):
+        pass
 
     def run_commands(self, commands, check_rc=True):
         connection = self._get_connection()
@@ -94,8 +97,20 @@ class HttpApi:
             self._module.fail_json(msg=to_text(exc, errors='surrogate_then_replace'))
         return response
 
-    def send_request(self):
-        pass
+    def send_requests(self, requests):
+        if requests is None:
+            raise ValueError("'requests' value is required")
+
+        responses = list()
+        for req in to_list(requests):
+            if isinstance(req, Mapping):
+                path = req.pop('path')
+            try:
+                response = self._connection.send_request(path, **req)
+            except ConnectionError as exc:
+                self._module.fail_json(msg=to_text(exc, errors='surrogate_then_replace'))
+            response.append(response)
+        return responses
 
     def get_capabilities(self):
         """Returns platform info of the remove device
@@ -125,6 +140,9 @@ def run_commands(module, commands, check_rc=True):
     conn = get_connection(module)
     return conn.run_commands(to_command(module, commands), check_rc=check_rc)
 
+def send_requests(module, requests):
+    conn = get_connection(module)
+    return conn.send_requests(to_request(module, requests))
 
 def get_config(module, flags=None):
     flags = None if flags is None else flags
@@ -156,3 +174,11 @@ def to_command(module, commands):
         check_all=dict(type='bool', default=False),
     ), module)
     return transform(to_list(commands))
+
+def to_request(module, requests):
+    transform = ComplexList(dict(
+        request=dict(key=True),
+        method=dict(),
+        data=dict(),
+    ), module)
+    return transform(to_list(requests))
