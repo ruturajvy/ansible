@@ -64,7 +64,7 @@ class Cli:
     def run_commands(self, commands, check_rc=True):
         connection = self._get_connection()
         try:
-            response = connection.run_commands(commands=self.to_command(commands), check_rc=check_rc)
+            response = connection.run_commands(commands=commands, check_rc=check_rc)
         except ConnectionError as exc:
             self._module.fail_json(msg=to_text(exc, errors='surrogate_then_replace'))
         return response
@@ -77,15 +77,6 @@ class Cli:
         connection = self._get_connection()
         return json.loads(connection.get_capabilities())
 
-    def to_command(self, commands):
-        transform = ComplexList(dict(
-            command=dict(key=True),
-            prompt=dict(type='list'),
-            answer=dict(type='list'),
-            sendonly=dict(type='bool', default=False),
-            check_all=dict(type='bool', default=False),
-        ), self._module)
-        return transform(to_list(commands))
 
 
 
@@ -102,11 +93,16 @@ class HttpApi:
     def _connection(self):
         if not self._connection_obj:
             self._connection_obj = Connection(self._module._socket_path)
-
         return self._connection_obj
 
+    def run_commands(self, commands, check_rc=True):
+        try:
+            response = self._connection.run_commands(commands=commands, check_rc=check_rc)
+        except ConnectionError as exc:
+            self._module.fail_json(msg=to_text(exc, errors='surrogate_then_replace'))
+        return response
 
-    def run_commands(self, requests, check_rc=True):
+    def send_request(self):
         pass
 
     def get_capabilities(self):
@@ -135,7 +131,7 @@ def load_config(module, config):
 
 def run_commands(module, commands, check_rc=True):
     conn = get_connection(module)
-    return conn.run_commands(commands, check_rc=check_rc)
+    return conn.run_commands(to_command(module, commands), check_rc=check_rc)
 
 
 def get_config(module, flags=None):
@@ -157,3 +153,14 @@ def get_connection(module):
             module.fail_json(msg='Invalid connection type %s' % cap['network_api'])
         _DEVICE_CONNECTION = conn
     return _DEVICE_CONNECTION
+
+
+def to_command(module, commands):
+    transform = ComplexList(dict(
+        command=dict(key=True),
+        prompt=dict(type='list'),
+        answer=dict(type='list'),
+        sendonly=dict(type='bool', default=False),
+        check_all=dict(type='bool', default=False),
+    ), module)
+    return transform(to_list(commands))
