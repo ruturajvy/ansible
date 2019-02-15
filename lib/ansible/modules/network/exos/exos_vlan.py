@@ -86,7 +86,9 @@ EXAMPLES = """
   exos_vlan:
     aggregate:
       - { vlan_id: 300, name: test_vlan_1, description: test_vlan 1 }
-      - { vlan_id: 400, name: test_vlan_2, description: test_vlan 2 } 
+      - { vlan_id: 400, name: test_vlan_2, description: test_vlan 2 }
+    state: present
+
 """
 
 RETURN = """
@@ -99,6 +101,7 @@ commands:
     - name test-vlan
 """
 import json
+import time
 from copy import deepcopy
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.network.common.utils import conditional, remove_default_spec
@@ -112,19 +115,37 @@ def map_params_to_list(module):
     aggregate = params['aggregate']
     if aggregate:
         for item in aggregate:
-            new_config_list.append(item)
+            for key in item:
+                if item.get(key) is None:
+                    item[key] = module.params[key]
+            d = item.copy()
+            validate_vlan_id(module, d['vlan_id'])
+            d['vlan_id'] = str(d['vlan_id'])
+            new_config_list.append(d)
     else:
-        vlan_id = params['vlan_id']
-        name = params['name']
-        interfaces = params['interfaces']
+        new_config_list.append
+        ({
+        'vlan_id':params['vlan_id'],
+        'name':params['name'],
+        'interfaces':params['interfaces'],
+        'state':params['state']
+        })
     return new_config_list
-    
+
+# Returns in the dictionary with the vlan in the list ( used for searching in old_config_list)    
+def search_vlan_in_list(vlan_id, lst):
+    for o in lst:
+        if o['vlan_id'] == vlan_id:
+            return o
+    return None
+
 # Maps the current configuration to a list of dictionaries with each dictionary having name, vlan_id, interfaces as keys
 def map_config_to_list(module):
-    requests = [{"path":"/rest/restconf/data/openconfig-vlan:vlans", "method":"GET"}]
-    resp = web.send_requests(requests)
+    requests = [{"path":"/rest/restconf/data/openconfig-vlan:vlans"}]
+    web_obj = web(module)
+    resp = web_obj.send_requests(requests)
     vlan_json = json.loads(resp)
-    config_list = list()
+    old_config_list = list()
     for vlan in vlan_json['openconfig-vlan:vlans']['vlan']:
         old_config_list.append({
         'name':vlan['config']['name'],
@@ -133,12 +154,46 @@ def map_config_to_list(module):
         })
     return old_config_list
 
-def map_diff_to_requests(self,module, old_config_list, new_config_list):
-    for config
+def map_diff_to_requests(module, old_config_list, new_config_list):
+    requests = list()
+    for new_config in new_config_list:
+        vlan_id = new_config['vlan_id']
+        name = new_config['name']
+        interfaces = new_config['interfaces']
+        state = new_config['state']
+        vlan_dict = search_vlan_in_list(vlan_id, old_config_list)  # These VLANs are already configured
 
+        if state == 'absent':
+            if vlan_dict:
+                path = "/rest/restconf/data/openconfig-vlan:vlans/vlan=" + str(vlan_id)
+                requests.append({"path": path, "method":"DELETE"})
+        elif state == 'present':
+            if not vlan_dict:
+                if name:
+                    path = "/rest/restconf/data/openconfig-vlan:vlans/"
+                    body = json.dumps({"openconfig-vlan:vlan":[{"config": {"vlan-id": str(vlan_id) ,"status": "ACTIVE","tpid": "oc-vlan-types:TPID_0x8100","name": name}}]})
+                    requests.append({"path": path, "method":"POST", "data": body})
+                # What if just id is given
+                if interfaces:
+                    pass
+            else:
+                if name:
+                    if name!=vlan_dict['name']:
+                        path = "/rest/restconf/data/openconfig-vlan:vlans/"
+                        body = json.dumps({"openconfig-vlan:vlan":[{"config": {"vlan-id": str(vlan_id) ,"status": "ACTIVE","tpid": "oc-vlan-types:TPID_0x8100","name": name}}]})
+                        requests.append({"path": path, "method":"POST", "data": body})
+                    
+                if interfaces:
+                    pass
+                
+        
+        return requests
+def change_configuration(module,requests):
+    web_obj = web(module)
+    web_obj.send_requests(requests)            
 
-def validate_vlan_id(value, module):
-    if value and not 1 <= value <= 4094:
+def validate_vlan_id(module, vlan):
+    if vlan and not 1 <= vlan <= 4094:
         module.fail_json(msg='vlan_id must be between 1 and 4094')
 
 def to_param_list(module):
@@ -151,24 +206,36 @@ def to_param_list(module):
     else:
         return [module.params]
 
+def check_declarative_intent_params(want, module):
+    if module.params['interfaces']:
+        time.sleep(module.params['delay'])
+        old_config_list = map_config_to_list(module)
 
-
+        for w in want:
+            for i in w['interfaces']:
+                obj_in_have = search_vlan_in_list(w['vlan_id'], old_config_list)
+                if obj_in_have and 'interfaces' in obj_in_have and i not in obj_in_have['interfaces']:
+                    module.fail_json(msg="Interface %s not configured on vlan %s" % (i, w['vlan_id']))
 def main():
     """ main entry point for module execution
     """
     element_spec = dict(
         vlan_id=dict(type='int'),
-        name=dict(type='str'),
+        name=dict(),
         interfaces=dict(type='list'),
         delay=dict(default=10, type='int'),
         state=dict(default='present',
                    choices=['present', 'absent'])
     )
+
     aggregate_spec = deepcopy(element_spec)
     aggregate_spec['vlan_id'] = dict(required=True)
+
+    # remove default in aggregate spec, to handle common arguments
+    remove_default_spec(aggregate_spec)
+
     argument_spec = dict(
-        aggregate=dict(type='list', elements='dict'
-        , options=aggregate_spec),
+        aggregate=dict(type='list', elements='dict', options=aggregate_spec),
         purge=dict(default=False, type='bool')
     )
 
@@ -181,23 +248,24 @@ def main():
                            required_one_of=required_one_of,
                            mutually_exclusive=mutually_exclusive,
                            supports_check_mode=True)
+    
     warnings = list()
     result = {'changed': False}
     if warnings:
         result['warnings'] = warnings
 
-    want = map_params_to_obj(module)
-    have = map_config_to_obj(module)
-    requests = map_diff_to_requests((want, have), module)
-    
+    new_config_list = map_params_to_list(module)
+    old_config_list = map_config_to_list(module)
+    requests = map_diff_to_requests(module, old_config_list, new_config_list)
+    result['requests'] = requests
 
-    if commands:
+    if requests:
         if not module.check_mode:
-            load_config(module, commands)
+            change_configuration(module, requests)
         result['changed'] = True
 
     if result['changed']:
-        check_declarative_intent_params(want, module)
+        check_declarative_intent_params(old_config_list, module)
 
     module.exit_json(**result)
 
