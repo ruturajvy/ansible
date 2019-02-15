@@ -99,36 +99,42 @@ commands:
     - name test-vlan
 """
 import json
-from ansible.module_utils.urls import open_url
 from copy import deepcopy
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.network.common.utils import conditional, remove_default_spec
 from ansible.module_utils.network.exos.exos import HttpApi as web
 
- 
-def map_params_to_obj(self,module,params=None):
-    if not params:
-        params = module.params
-    aggregate = params['aggreagate']
+
+# Maps the required configuration to a list of dictionaries with each dictionary having name, vlan_id, and interfaces as keys
+def map_params_to_list(module):
+    params = module.params
+    new_config_list = list()
+    aggregate = params['aggregate']
     if aggregate:
         for item in aggregate:
-        for key in item:
-            if item.get(key) is None:
-            pass
+            new_config_list.append(item)
+    else:
+        vlan_id = params['vlan_id']
+        name = params['name']
+        interfaces = params['interfaces']
+    return new_config_list
+    
 # Maps the current configuration to a list of dictionaries with each dictionary having name, vlan_id, interfaces as keys
-def map_config_to_obj(self,module):
-    resp = web.send_requests()
+def map_config_to_list(module):
+    requests = [{"path":"/rest/restconf/data/openconfig-vlan:vlans", "method":"GET"}]
+    resp = web.send_requests(requests)
     vlan_json = json.loads(resp)
     config_list = list()
     for vlan in vlan_json['openconfig-vlan:vlans']['vlan']:
-        config_list.append({
+        old_config_list.append({
         'name':vlan['config']['name'],
         'vlan_id': vlan['config']['vlan_id'],
         'interfaces': [item['interface-ref']['state'] for item in vlan['members']['member']]
         })
-    return config_list
-def map_diff_to_requests(self,module, diff):
-    old_config, new_config = diff
+    return old_config_list
+
+def map_diff_to_requests(self,module, old_config_list, new_config_list):
+    for config
 
 
 def validate_vlan_id(value, module):
@@ -144,73 +150,7 @@ def to_param_list(module):
             return aggregate
     else:
         return [module.params]
-# Map config to object  
-# def list_vlans():   
-#     vlan_json = json.loads(open_url(list_url, method='GET', url_username='admin', url_password='').read())
-#     print(json.dumps(vlan_json))
-#     name_list = [vlistitem['config']['name'] for vlistitem in vlan_json['openconfig-vlan:vlans']['vlan']]
-#     vlan_id_list = [vlist['config']['vlan-id'] for vlist in vlan_json['openconfig-vlan:vlans']['vlan']]
-#     vlan_tuple_list = zip(name_list, vlan_id_list)
-#     print(vlan_tuple_list)
-#     return vlan_tuple_list
-# # Check with the current config
-# def validate_vlan(vlan_id, name):
-#     tuple_vlans = list_vlans()
-#     for item in tuple_vlans:
-#         if item[0]==name:
-#             return 1
-#         if item[1]==vlan_id:
-#             return 2
-#     return 0
 
-        
-# def create_vlan(vlan_id, name):
-#     if validate_vlan(vlan_id,name)==1:
-#         error_msg = "Cannot create vlan. Vlan with the name " + name + " already exists"
-#         print(error_msg)
-#         return
-#         #.fail_json(msg = error_msg)
-#     elif validate_vlan(vlan_id,name)==2:
-#         error_msg = "Cannot create vlan. Vlan with the id " + str(vlan_id) + " already exists"
-#         print(error_msg)
-#         return
-#         #.fail_json(msg = error_msg)
-#     data = build_vlan_json(vlan_id, name)
-#     resp = open_url(post_vlan, method='POST', data = data, headers = { "Content-Type": "application/json", "Accept": "application/json" }, url_username='admin', url_password='')
-#     print(resp.read())
-
-# def build_vlan_json(vlan_id, name):
-#     vlan_json_serialized = json.dumps({"openconfig-vlan:vlan":[{"config": {"vlan-id": str(vlan_id) ,"status": "ACTIVE","tpid": "oc-vlan-types:TPID_0x8100","name": name}}]})
-#     #vlan_json_deserialized = json.loads(vlan_json_serialized)
-#     print(vlan_json_serialized)
-#     return vlan_json_serialized
-
-# def update_vlan_name(vlan_id,name):
-#     data = json.dumps({"openconfig-vlan:vlan":[{"config": {"vlan-id": str(vlan_id) ,"status": "ACTIVE","tpid": "oc-vlan-types:TPID_0x8100","name": name}}]})
-#     try:
-#         rsp = open_url(post_vlan +'vlan='+str(vlan_id), method='PATCH', data = data, headers = { "Content-Type": "application/json", "Accept": "application/json" }, url_username='admin', url_password='')
-#         print(rsp.read())
-#     # except HTTPError as e:
-#     #    print("The VLAN already exists: HTTPError: %s" % e.code)
-#     except:
-#         print("Failed to update VLAN")
-
-# def delete_vlan_by_id(vlan_id):
-#     try:
-#         rsp = open_url(post_vlan + 'vlan=' + str(vlan_id), method='DELETE', headers = { "Content-Type": "application/json", "Accept": "application/json" }, url_username='admin', url_password='')
-#         print(rsp.read())
-#     except HTTPError as e:
-#         print("HTTP Error %s" %e.code)
-    
-# def delete_vlan_by_name(name):
-#     tuple_vlans = list_vlans()
-#     for item in tuple_vlans:
-#         if item[0] == name:
-#             rsp = open_url(post_vlan + 'vlan=' + str(item[1]), method='DELETE', headers = { "Content-Type": "application/json", "Accept": "application/json" }, url_username='admin', url_password='')
-#             print(rsp.read())
-#             return
-#     print("The VLAN does not exist")
-#     return
 
 
 def main():
