@@ -46,6 +46,8 @@ class Cli:
         return self._connection
 
     def get_config(self, flags=None):
+        """Retrieves the current config from the device or cache
+        """
         flags = [] if flags is None else flags
         try:
             return self._device_configs
@@ -62,7 +64,7 @@ class Cli:
     def send_requests(self, requests):
         pass
 
-    def run_commands(self, commands, check_rc=True):
+    def run_commands(self, commands, check_rc=True):    
         connection = self._get_connection()
         try:
             response = connection.run_commands(commands=commands, check_rc=check_rc)
@@ -109,7 +111,7 @@ class HttpApi:
                 response = self._connection.send_request(path, **req)
             except ConnectionError as exc:
                 self._module.fail_json(msg=to_text(exc, errors='surrogate_then_replace'))
-            response.append(response)
+            responses.append(response)
         return responses
 
     def get_capabilities(self):
