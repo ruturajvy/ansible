@@ -41,14 +41,12 @@ import ansible.module_utils.six.moves.http_cookiejar as cookiejar
 from ansible.module_utils.common._collections_compat import Mapping
 
 
-
 OPTIONS = {
     'format': ['text', 'json'],
     'diff_match': ['line', 'strict', 'exact', 'none'],
     'diff_replace': ['line', 'block', 'config'],
     'output': ['text', 'json']
 }
-
 
 class HttpApi(HttpApiBase):
 
@@ -88,8 +86,11 @@ class HttpApi(HttpApiBase):
         for cmd in to_list(commands):
             if not isinstance(cmd, Mapping):
                 cmd = {'command': cmd}
+
             #TO DO: FIELDS NOT SUPPORTED
-            data = request_builder(cmd)
+            if ('prompt', 'answer') in cmd:
+                pass
+            data = request_builder(cmd['command'])
 
             response, response_data = self.connection.send('/jsonrpc', data, cookies=self._auth_token, headers=headers, method='POST')
             try:
@@ -149,7 +150,7 @@ class HttpApi(HttpApiBase):
 
         return json.dumps(result)
 
-def request_builder(command, reqid=None):
+def request_builder(command, reqid=""):
     return json.dumps(dict(jsonrpc='2.0', id=reqid, method='cli', params=to_list(command)))
 
 def handle_response(response):
