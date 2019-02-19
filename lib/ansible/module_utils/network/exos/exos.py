@@ -197,7 +197,7 @@ def send_requests(module, requests):
 
 def to_request(module, requests):
     transform = ComplexList(dict(
-        request=dict(key=True),
+        path=dict(key=True),
         method=dict(),
         data=dict(),
     ), module)
