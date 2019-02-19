@@ -183,6 +183,7 @@ def run_commands(module, commands, check_rc=True):
 def to_command(module, commands):
     transform = ComplexList(dict(
         command=dict(key=True),
+        output=dict(default='text'),
         prompt=dict(type='list'),
         answer=dict(type='list'),
         sendonly=dict(type='bool', default=False),
