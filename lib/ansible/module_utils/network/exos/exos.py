@@ -110,11 +110,21 @@ class HttpApi:
             self._connection_obj = Connection(self._module._socket_path)
         return self._connection_obj
 
-    def get_config(self, commands):
+    def get_config(self, flags=None):
         """Retrieves the current config from the device or cache
         """
-        # TO DO
-        pass
+        flags = [] if flags is None else flags
+        try:
+            return self._device_configs
+        except KeyError:
+            connection = self._get_connection()
+            try:
+                out = connection.get_config(flags=flags)
+            except ConnectionError as exc:
+                self._module.fail_json(msg=to_text(exc, errors='surrogate_then_replace'))
+            cfg = to_text(out, errors='surrogate_then_replace').strip()
+            self._device_configs = cfg
+            return cfg
 
     def load_config(self, commands):
         """Loads the configuration onto the remote devices

@@ -98,12 +98,22 @@ class HttpApi(HttpApiBase):
                     to_text(response_data.getvalue())
                 ))
 
+            if response_data.get('error', None):
+                raise ConnectionError("Request Error, got {0}".format(response_data['error']))
+            if not response_data.get('result', None):
+                raise ConnectionError("Request Error, got {0}".format(response_data))
+
+            response_data = response_data['result']
+
             if output and output == 'text':
-                cliOutput = getCLIoutput(response_data)
-                if not cliOutput:
-                    raise ValueError("Response doesn't have the CLIoutput field, got {0}".format(response_data))
-                response_data = cliOutput
-            #handle_error(response_data)    # Invoker should check for 'status' of the object before using it.
+                statusOut = getKeyInResult(response_data, 'status')
+                cliOut = getKeyInResult(response_data, 'CLIoutput')
+                if statusOut == "ERROR":
+                    raise ConnectionError("Command error({1}) for request {0}".format(cmd['command'], cliOut))
+                if not cliOut :
+                    raise ValueError("Response for request {0} doesn't have the CLIoutput field, got {1}".format(cmd['command'], response_data))
+                response_data = cliOut
+
             responses.append(response_data)
         return responses
 
@@ -161,6 +171,32 @@ class HttpApi(HttpApiBase):
         result.update(self.get_option_values())
         result['network_api'] = 'exosapi'
         return json.dumps(result)
+
+    def get_config(self, source='running', format='text', flags=None):
+        options_values = self.get_option_values()
+        if format not in options_values['format']:
+            raise ValueError("'format' value %s is invalid. Valid values are %s" % (format, ','.join(options_values['format'])))
+
+        lookup = {'running': 'show configuration', 'startup': 'debug cfgmgr show configuration file'}
+        if source not in lookup:
+            raise ValueError("fetching configuration from %s is not supported" % source)
+
+        if source == 'running':
+            cmd = {'command' : lookup[source], 'output': 'text'}
+        else:
+            cmd = {'command' : lookup[source], 'output': 'text'}
+            reply = self.run_commands({'command': 'show switch', 'format': 'text'})
+            # DEFAULTS - No configuration to show # TO DO
+            data = to_text(reply, errors='surrogate_or_strict').strip()
+            match = re.search(r'Config Selected: +(\S+)\.cfg', data, re.MULTILINE)
+            if match:
+                cmd['command'] += ' '.join( match.group(1))
+                cmd['command'] = cmd['command'].strip()
+
+        cmd['command'] += ' '.join(to_list(flags))
+        cmd['command'] = cmd['command'].strip()
+
+        return self.run_commands(cmd)
 
 def request_builder(command, reqid=""):
     return json.dumps(dict(jsonrpc='2.0', id=reqid, method='cli', params=to_list(command)))
