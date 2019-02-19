@@ -244,11 +244,11 @@ def get_running_config(module, current_config=None):
 
 
 def get_startup_config_text(module):
-    reply = run_commands(module, ['show switch | include "Config Selected"'])
-    match = re.search(r': +(\S+)\.cfg', to_text(reply, errors='surrogate_or_strict').strip())
+    reply = run_commands(module, ['show switch'])
+    match = re.search(r'Config Selected: +(\S+)\.cfg', to_text(reply, errors='surrogate_or_strict').strip(), re.MULTILINE)
     if match:
         cfgname = match.group(1).strip()
-        reply = run_commands(module, ['debug cfgmgr show configuration file ' + cfgname])
+        reply = run_commands(module, { 'command': 'debug cfgmgr show configuration file ' + cfgname, 'output': 'json'})
         data = reply[0]
     else:
         data = ''
