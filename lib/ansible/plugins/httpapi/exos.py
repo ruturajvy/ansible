@@ -40,14 +40,6 @@ from ansible.plugins.httpapi import HttpApiBase
 import ansible.module_utils.six.moves.http_cookiejar as cookiejar
 from ansible.module_utils.common._collections_compat import Mapping
 
-
-OPTIONS = {
-    'format': ['text', 'json'],
-    'diff_match': ['line', 'strict', 'exact', 'none'],
-    'diff_replace': ['line', 'block', 'config'],
-    'output': ['text', 'json']
-}
-
 class HttpApi(HttpApiBase):
 
     def __init__(self, *args, **kwargs):
@@ -57,9 +49,8 @@ class HttpApi(HttpApiBase):
 
     def login(self, username, password):
         auth_path = '/auth/token'
-        contentType = {'content-type': 'application/json'}
         credentials = {'username': username, 'password': password }
-        self.send_request(path=auth_path, data=json.dumps(credentials), method='POST', headers=contentType)
+        self.send_request(path=auth_path, data=json.dumps(credentials), method='POST')
 
     def logout(self):
         pass
@@ -68,7 +59,8 @@ class HttpApi(HttpApiBase):
         return False
 
     def send_request(self, path, data=None, method='GET', **message_kwargs):
-        response, response_data = self.connection.send(path, data, cookies=self._auth_token, **message_kwargs)
+        headers = {'Content-Type': 'application/json'}
+        response, response_data = self.connection.send(path, data, cookies=self._auth_token, headers=headers, **message_kwargs)
         try:
             response_data = json.loads(to_text(response_data.getvalue()))
         except ValueError:
@@ -90,8 +82,8 @@ class HttpApi(HttpApiBase):
             cmd['command'] = strip_run_script_cli2json(cmd['command'])
 
             output = cmd.pop('output', None)
-            if output and output not in OPTIONS.get('output'):
-                raise ValueError("'output' value is %s is invalid. Valid values are %s" % (output, ','.join(OPTIONS.get('output'))))
+            if output and output not in self.get_option_values().get('output'):
+                raise ValueError("'output' value is %s is invalid. Valid values are %s" % (output, ','.join(self.get_option_values().get('output'))))
 
             #TO DO: FIELDS NOT SUPPORTED
             if ('prompt', 'answer') in cmd:
@@ -153,14 +145,21 @@ class HttpApi(HttpApiBase):
                     'supports_commit_label': False         # identify if commit label is supported or not
         }
 
+    def get_option_values(self):
+        return {
+            'format': ['text', 'json'],
+            'diff_match': ['line', 'strict', 'exact', 'none'],
+            'diff_replace': ['line', 'block'],
+            'output': ['text', 'json']
+        }
+
     def get_capabilities(self):
         result = {}
         result['rpc'] = []
         result['device_info'] = self.get_device_info()
         result['device_operations'] = self.get_device_operations()
-        result.update(OPTIONS)
+        result.update(self.get_option_values())
         result['network_api'] = 'exosapi'
-
         return json.dumps(result)
 
 def request_builder(command, reqid=""):
@@ -171,18 +170,10 @@ def strip_run_script_cli2json(command):
         command = str(command).replace('run script cli2json.py', '')
     return command
 
-def handle_error(response):
-    if 'result' in response:
-        for item in response['result']:
-            if 'status' in item:
-                if item['status'] == 'ERROR':
-                    raise ConnectionError(response)
-
-def getCLIoutput(response):
-    cliOutput = None
-    if 'result' in response:
-        for item in response['result']:
-            if 'CLIoutput' in item:
-                cliOutput = item['CLIoutput']
-                break
-    return cliOutput
+def getKeyInResult(response, key):
+    keyOut = None
+    for item in response:
+        if key in item:
+            keyOut = item[key]
+            break
+    return keyOut

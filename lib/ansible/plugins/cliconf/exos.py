@@ -158,7 +158,7 @@ class Cliconf(CliconfBase):
     def get_option_values(self):
         return {
             'format': ['text', 'json'],
-            'diff_match': ['strict'],
+            'diff_match': ['line', 'strict', 'exact', 'none'],
             'diff_replace': ['line', 'block'],
             'output': ['text', 'json']
         }
