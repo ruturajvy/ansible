@@ -109,6 +109,10 @@ class Cliconf(CliconfBase):
             if not isinstance(cmd, Mapping):
                 cmd = {'command': cmd}
 
+            output = cmd.pop('output', None)
+            if output:
+                cmd['command'] = self._get_command_with_output(cmd['command'], output)
+
             try:
                 out = self.send_command(**cmd)
             except AnsibleConnectionFailure as e:
@@ -122,11 +126,15 @@ class Cliconf(CliconfBase):
                 except UnicodeError:
                     raise ConnectionError(message=u'Failed to decode output from %s: %s' % (cmd, to_text(out)))
 
-                #try:
-                #    out = json.loads(out)
-                #except ValueError:
-                #    pass
+                if output and output == 'json':
+                    try:
+                        out = json.loads(out)
+                    except ValueError:
+                        raise ConnectionError('Response was not valid JSON, got {0}'.format(
+                            to_text(out)
+                        ))
                 responses.append(out)
+
         return responses
 
     def get_device_operations(self):
@@ -137,8 +145,8 @@ class Cliconf(CliconfBase):
                     'supports_defaults': True,             # identify if fetching running config with default is supported
                     'supports_commit_comment': False,      # identify if adding comment to commit is supported of not
                     'supports_onbox_diff': True,           # identify if on box diff capability is supported or not
-                    'supports_generate_diff': False,       # identify if diff capability is supported within plugin
-                    'supports_multiline_delimiter': False, # identify if multiline demiliter is supported within config
+                    'supports_generate_diff': True,        # identify if diff capability is supported within plugin
+                    'supports_multiline_delimiter': False, # identify if multiline delimiter is supported within config
                     'supports_diff_match': True,           # identify if match is supported
                     'supports_diff_ignore_lines': True,    # identify if ignore line in diff is supported
                     'supports_config_replace': False,      # identify if running config replace with candidate config is supported
@@ -162,3 +170,13 @@ class Cliconf(CliconfBase):
         result['device_info'] = self.get_device_info()
         result.update(self.get_option_values())
         return json.dumps(result)
+
+    def _get_command_with_output(self, command, output):
+        if output not in self.get_option_values().get('output'):
+            raise ValueError("'output' value is %s is invalid. Valid values are %s" % (output, ','.join(self.get_option_values().get('output'))))
+
+        if output == 'json' and not command.startswith('run script cli2json.py'):
+            cmd = 'run script cli2json.py %s' % command
+        else:
+            cmd = command
+        return cmd

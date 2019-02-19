@@ -87,6 +87,12 @@ class HttpApi(HttpApiBase):
             if not isinstance(cmd, Mapping):
                 cmd = {'command': cmd}
 
+            cmd['command'] = strip_run_script_cli2json(cmd['command'])
+
+            output = cmd.pop('output', None)
+            if output and output not in OPTIONS.get('output'):
+                raise ValueError("'output' value is %s is invalid. Valid values are %s" % (output, ','.join(OPTIONS.get('output'))))
+
             #TO DO: FIELDS NOT SUPPORTED
             if ('prompt', 'answer') in cmd:
                 pass
@@ -99,14 +105,21 @@ class HttpApi(HttpApiBase):
                 raise ConnectionError('Response was not valid JSON, got {0}'.format(
                     to_text(response_data.getvalue())
                 ))
-            responses.append(handle_response(response_data))
+
+            if output and output == 'text':
+                cliOutput = getCLIoutput(response_data)
+                if not cliOutput:
+                    raise ValueError("Response doesn't have the CLIoutput field, got {0}".format(response_data))
+                response_data = cliOutput
+            #handle_error(response_data)    # Invoker should check for 'status' of the object before using it.
+            responses.append(response_data)
         return responses
 
     def get_device_info(self):
         device_info = {}
         device_info['network_os'] = 'exos'
 
-        reply = self.run_commands('show switch detail')
+        reply = self.run_commands({'command': 'show switch detail', 'output':'text'})
         data = to_text(reply, errors='surrogate_or_strict').strip()
 
         match = re.search(r'ExtremeXOS version  (\S+)', data)
@@ -131,7 +144,7 @@ class HttpApi(HttpApiBase):
                     'supports_defaults': True,             # identify if fetching running config with default is supported
                     'supports_commit_comment': False,      # identify if adding comment to commit is supported of not
                     'supports_onbox_diff': True,           # identify if on box diff capability is supported or not
-                    'supports_generate_diff': False,       # identify if diff capability is supported within plugin
+                    'supports_generate_diff': True,       # identify if diff capability is supported within plugin
                     'supports_multiline_delimiter': False, # identify if multiline demiliter is supported within config
                     'supports_diff_match': True,           # identify if match is supported
                     'supports_diff_ignore_lines': True,    # identify if ignore line in diff is supported
@@ -153,14 +166,23 @@ class HttpApi(HttpApiBase):
 def request_builder(command, reqid=""):
     return json.dumps(dict(jsonrpc='2.0', id=reqid, method='cli', params=to_list(command)))
 
-def handle_response(response):
-    result = {}
+def strip_run_script_cli2json(command):
+    if to_text(command, errors="surrogate_then_replace").startswith('run script cli2json.py'):
+        command = str(command).replace('run script cli2json.py', '')
+    return command
+
+def handle_error(response):
+    if 'result' in response:
+        for item in response['result']:
+            if 'status' in item:
+                if item['status'] == 'ERROR':
+                    raise ConnectionError(response)
+
+def getCLIoutput(response):
+    cliOutput = None
     if 'result' in response:
         for item in response['result']:
             if 'CLIoutput' in item:
-                result['CLIoutput'] = item['CLIoutput'][0]
-            if 'status' in item:
-                result['status'] = item['status']
-    if 'status' in result and result['status'] == 'ERROR':
-        raise ConnectionError(result['CLIoutput'])
-    return result['CLIoutput']
+                cliOutput = item['CLIoutput']
+                break
+    return cliOutput
