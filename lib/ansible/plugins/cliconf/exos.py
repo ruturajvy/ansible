@@ -46,7 +46,7 @@ class Cliconf(CliconfBase):
         device_info = {}
         device_info['network_os'] = 'exos'
 
-        reply = self.get('show switch detail')
+        reply = self.run_commands({'command': 'show switch detail', 'output':'text'})
         data = to_text(reply, errors='surrogate_or_strict').strip()
 
         match = re.search(r'ExtremeXOS version  (\S+)', data)
@@ -73,32 +73,25 @@ class Cliconf(CliconfBase):
             raise ValueError("fetching configuration from %s is not supported" % source)
 
         if source == 'running':
-            cmd = lookup[source]
+            cmd = {'command' : lookup[source], 'output': 'text'}
         else:
-            cmd = lookup[source]
-            reply = self.get('show switch | include "Config Selected"')
+            cmd = {'command' : lookup[source], 'output': 'text'}
+            reply = self.run_commands({'command': 'show switch', 'format': 'text'})
             # DEFAULTS - No configuration to show # TO DO
             data = to_text(reply, errors='surrogate_or_strict').strip()
-            match = re.search(r': +(\S+)\.cfg', data)
+            match = re.search(r'Config Selected: +(\S+)\.cfg', data, re.MULTILINE)
             if match:
-                cmd += ' '.join( match.group(1))
-                cmd = cmd.strip()
+                cmd['command'] += ' '.join( match.group(1))
+                cmd['command'] = cmd['command'].strip()
 
-        cmd += ' '.join(to_list(flags))
-        cmd = cmd.strip()
+        cmd['command'] += ' '.join(to_list(flags))
+        cmd['command'] = cmd['command'].strip()
 
-        return self.send_command(cmd)
+        return self.run_commands(cmd)
 
     def edit_config(self, candidate=None, commit=True, replace=None, comment=None):
         operations = self.get_device_operations()
         self.check_edit_config_capability(operations, candidate, commit, replace, comment)
-
-    def get(self, command, prompt=None, answer=None, sendonly=False, check_all=False):
-        return self.send_command(command=command, prompt=prompt, answer=answer, sendonly=sendonly, check_all=check_all)
-
-    def get_diff(self, candidate=None, running=None, diff_match='strict', diff_ignore_lines=None, path=None, diff_replace='line'):
-        pass
-        # TO DO - On device diff available
 
     def run_commands(self, commands=None, check_rc=True):
         if commands is None:
