@@ -60,9 +60,12 @@ class HttpApi(HttpApiBase):
 
     def send_request(self, path, data=None, method='GET', **message_kwargs):
         headers = {'Content-Type': 'application/json'}
-        response, response_data = self.connection.send(path, data, cookies=self._auth_token, headers=headers, **message_kwargs)
+        response, response_data = self.connection.send(path, data, method=method, cookies=self._auth_token, headers=headers, **message_kwargs)
         try:
-            response_data = json.loads(to_text(response_data.getvalue()))
+            if response.status = 204:
+                response_data = {}
+            else:
+                response_data = json.loads(to_text(response_data.getvalue()))
         except ValueError:
             raise ConnectionError('Response was not valid JSON, got {0}'.format(
                 to_text(response_data.getvalue())
@@ -106,8 +109,8 @@ class HttpApi(HttpApiBase):
             response_data = response_data['result']
 
             if output and output == 'text':
-                statusOut = getKeyInResult(response_data, 'status')
-                cliOut = getKeyInResult(response_data, 'CLIoutput')
+                statusOut = getKeyInResponse(response_data, 'status')
+                cliOut = getKeyInResponse(response_data, 'CLIoutput')
                 if statusOut == "ERROR":
                     raise ConnectionError("Command error({1}) for request {0}".format(cmd['command'], cliOut))
                 if not cliOut :
@@ -206,7 +209,7 @@ def strip_run_script_cli2json(command):
         command = str(command).replace('run script cli2json.py', '')
     return command
 
-def getKeyInResult(response, key):
+def getKeyInResponse(response, key):
     keyOut = None
     for item in response:
         if key in item:
