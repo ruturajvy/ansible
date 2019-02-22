@@ -85,8 +85,8 @@ EXAMPLES = """
 - name: Create a VLAN configuration using aggregate
   exos_vlan:
     aggregate:
-      - { vlan_id: 300, name: test_vlan_1, description: test_vlan 1 }
-      - { vlan_id: 400, name: test_vlan_2, description: test_vlan 2 }
+      - { vlan_id: 300, name: test_vlan_1 }
+      - { vlan_id: 400, name: test_vlan_2 }
     state: present
 
 """
@@ -98,11 +98,13 @@ commands:
   type: list
   sample:
     "requests": [
-        {
-            "data": "{\"openconfig-vlan:vlan\": [{\"config\": {\"vlan-id\": 700, \"status\": \"ACTIVE\", \"name\": \"ansible700\", \"tpid\": \"oc-vlan-types:TPID_0x8100\"}}]}",            "method": "POST"
+        {   "path": "/rest/restconf/data/openconfig-vlan:vlans/"
+            "data": "{\"openconfig-vlan:vlan\": [{\"config\": {\"vlan-id\": 700, \"status\": \"ACTIVE\", \"name\": \"ansible700\", \"tpid\": \"oc-vlan-types:TPID_0x8100\"}}]}",
+            "method": "POST"
         },
-        {
-            "data": "{\"openconfig-vlan:vlan\": [{\"config\": {\"vlan-id\": 777, \"status\": \"ACTIVE\", \"name\": \"ansible777\", \"tpid\": \"oc-vlan-types:TPID_0x8100\"}}]}",            "method": "POST"
+        {   "path": "/rest/restconf/data/openconfig-vlan:vlans/"
+            "data": "{\"openconfig-vlan:vlan\": [{\"config\": {\"vlan-id\": 777, \"status\": \"ACTIVE\", \"name\": \"ansible777\", \"tpid\": \"oc-vlan-types:TPID_0x8100\"}}]}",
+            "method": "POST"
         }
     ]
 """
@@ -202,7 +204,7 @@ def map_diff_to_requests(module, old_config_list, new_config_list):
                         body = make_vlan_body(vlan_id, name)                        
                         requests.append({"path": path , "method":"PATCH", "data": body})    
                 if interfaces:
-                    pass              
+                    pass             
     return requests
 
 # Sends the HTTP requests to the switch API endpoints
@@ -266,7 +268,7 @@ def main():
     new_config_list = map_params_to_list(module)
     
     requests = map_diff_to_requests(module, old_config_list, new_config_list)
-    result['requests'] = requests
+    result['requests'] = requests.copy()
 
     if requests:
         if not module.check_mode:
@@ -275,7 +277,7 @@ def main():
 
     if result['changed']:
         check_declarative_intent_params(new_config_list, module)
-
+    
     module.exit_json(**result)
 
 
