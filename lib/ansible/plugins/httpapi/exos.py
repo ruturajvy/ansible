@@ -62,7 +62,7 @@ class HttpApi(HttpApiBase):
         headers = {'Content-Type': 'application/json'}
         response, response_data = self.connection.send(path, data, method=method, cookies=self._auth_token, headers=headers, **message_kwargs)
         try:
-            if response.status = 204:
+            if response.status == 204:
                 response_data = {}
             else:
                 response_data = json.loads(to_text(response_data.getvalue()))
