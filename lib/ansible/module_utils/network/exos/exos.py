@@ -83,11 +83,6 @@ class Cli:
             self._module.fail_json(msg=to_text(exc, errors='surrogate_then_replace'))
         return response
 
-    def send_requests(self, requests):
-        # TO DO : Error - Not Supported
-        pass
-
-
 class HttpApi:
     def __init__(self, module):
         self._module = module
@@ -149,10 +144,8 @@ class HttpApi:
 
         responses = list()
         for req in to_list(requests):
-            if isinstance(req, Mapping):
-                path = req.pop('path')
             try:
-                response = self._connection.send_request(path=path, **req)
+                response = self._connection.send_request(**req)
             except ConnectionError as exc:
                 self._module.fail_json(msg=to_text(exc, errors='surrogate_then_replace'))
             responses.append(response)
