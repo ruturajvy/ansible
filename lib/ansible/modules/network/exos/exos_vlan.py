@@ -1,6 +1,6 @@
 #!/usr/bin/python
 #
-# (c) 2018 Extreme Networks Inc.
+# (c) 2019 Extreme Networks Inc.
 #
 # This file is part of Ansible
 #
@@ -27,14 +27,14 @@ ANSIBLE_METADATA = {'metadata_version': '1.1',
 DOCUMENTATION = """
 ---
 module: exos_vlan
-version_added: "2.7"
+version_added: "2.8"
 author: "Ruturaj Vyawahare (@ruturajvy)"
 short_description: Manage VLANs on Extreme Networks EXOS network devices
 description:
   - This module provides declarative management of VLANs
     on Extreme XOS network devices
 notes:
-  - Tested against EXOS 30.2.0.12
+  - Tested against EXOS 30.1.1.4
 options:
   name:
     description:
@@ -268,7 +268,7 @@ def main():
     new_config_list = map_params_to_list(module)
     
     requests = map_diff_to_requests(module, old_config_list, new_config_list)
-    result['requests'] = requests.copy()
+    result['requests'] = requests
 
     if requests:
         if not module.check_mode:
@@ -283,3 +283,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+  
