@@ -46,7 +46,7 @@ class Cliconf(CliconfBase):
         device_info = {}
         device_info['network_os'] = 'exos'
 
-        reply = self.get('show switch detail')
+        reply = self.run_commands({'command': 'show switch detail', 'output':'text'})
         data = to_text(reply, errors='surrogate_or_strict').strip()
 
         match = re.search(r'ExtremeXOS version  (\S+)', data)
@@ -73,32 +73,25 @@ class Cliconf(CliconfBase):
             raise ValueError("fetching configuration from %s is not supported" % source)
 
         if source == 'running':
-            cmd = lookup[source]
+            cmd = {'command' : lookup[source], 'output': 'text'}
         else:
-            cmd = lookup[source]
-            reply = self.get('show switch | include "Config Selected"')
+            cmd = {'command' : lookup[source], 'output': 'text'}
+            reply = self.run_commands({'command': 'show switch', 'format': 'text'})
             # DEFAULTS - No configuration to show # TO DO
             data = to_text(reply, errors='surrogate_or_strict').strip()
-            match = re.search(r': +(\S+)\.cfg', data)
+            match = re.search(r'Config Selected: +(\S+)\.cfg', data, re.MULTILINE)
             if match:
-                cmd += ' '.join( match.group(1))
-                cmd = cmd.strip()
+                cmd['command'] += ' '.join( match.group(1))
+                cmd['command'] = cmd['command'].strip()
 
-        cmd += ' '.join(to_list(flags))
-        cmd = cmd.strip()
+        cmd['command'] += ' '.join(to_list(flags))
+        cmd['command'] = cmd['command'].strip()
 
-        return self.send_command(cmd)
+        return self.run_commands(cmd)
 
     def edit_config(self, candidate=None, commit=True, replace=None, comment=None):
         operations = self.get_device_operations()
         self.check_edit_config_capability(operations, candidate, commit, replace, comment)
-
-    def get(self, command, prompt=None, answer=None, sendonly=False, check_all=False):
-        return self.send_command(command=command, prompt=prompt, answer=answer, sendonly=sendonly, check_all=check_all)
-
-    def get_diff(self, candidate=None, running=None, diff_match='strict', diff_ignore_lines=None, path=None, diff_replace='line'):
-        pass
-        # TO DO - On device diff available
 
     def run_commands(self, commands=None, check_rc=True):
         if commands is None:
@@ -108,6 +101,10 @@ class Cliconf(CliconfBase):
         for cmd in to_list(commands):
             if not isinstance(cmd, Mapping):
                 cmd = {'command': cmd}
+
+            output = cmd.pop('output', None)
+            if output:
+                cmd['command'] = self._get_command_with_output(cmd['command'], output)
 
             try:
                 out = self.send_command(**cmd)
@@ -122,11 +119,15 @@ class Cliconf(CliconfBase):
                 except UnicodeError:
                     raise ConnectionError(message=u'Failed to decode output from %s: %s' % (cmd, to_text(out)))
 
-                #try:
-                #    out = json.loads(out)
-                #except ValueError:
-                #    pass
+                if output and output == 'json':
+                    try:
+                        out = json.loads(out)
+                    except ValueError:
+                        raise ConnectionError('Response was not valid JSON, got {0}'.format(
+                            to_text(out)
+                        ))
                 responses.append(out)
+
         return responses
 
     def get_device_operations(self):
@@ -137,8 +138,8 @@ class Cliconf(CliconfBase):
                     'supports_defaults': True,             # identify if fetching running config with default is supported
                     'supports_commit_comment': False,      # identify if adding comment to commit is supported of not
                     'supports_onbox_diff': True,           # identify if on box diff capability is supported or not
-                    'supports_generate_diff': False,       # identify if diff capability is supported within plugin
-                    'supports_multiline_delimiter': False, # identify if multiline demiliter is supported within config
+                    'supports_generate_diff': True,        # identify if diff capability is supported within plugin
+                    'supports_multiline_delimiter': False, # identify if multiline delimiter is supported within config
                     'supports_diff_match': True,           # identify if match is supported
                     'supports_diff_ignore_lines': True,    # identify if ignore line in diff is supported
                     'supports_config_replace': False,      # identify if running config replace with candidate config is supported
@@ -150,7 +151,7 @@ class Cliconf(CliconfBase):
     def get_option_values(self):
         return {
             'format': ['text', 'json'],
-            'diff_match': ['strict'],
+            'diff_match': ['line', 'strict', 'exact', 'none'],
             'diff_replace': ['line', 'block'],
             'output': ['text', 'json']
         }
@@ -162,3 +163,13 @@ class Cliconf(CliconfBase):
         result['device_info'] = self.get_device_info()
         result.update(self.get_option_values())
         return json.dumps(result)
+
+    def _get_command_with_output(self, command, output):
+        if output not in self.get_option_values().get('output'):
+            raise ValueError("'output' value is %s is invalid. Valid values are %s" % (output, ','.join(self.get_option_values().get('output'))))
+
+        if output == 'json' and not command.startswith('run script cli2json.py'):
+            cmd = 'run script cli2json.py %s' % command
+        else:
+            cmd = command
+        return cmd
