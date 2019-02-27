@@ -40,14 +40,6 @@ from ansible.plugins.httpapi import HttpApiBase
 import ansible.module_utils.six.moves.http_cookiejar as cookiejar
 from ansible.module_utils.common._collections_compat import Mapping
 
-
-OPTIONS = {
-    'format': ['text', 'json'],
-    'diff_match': ['line', 'strict', 'exact', 'none'],
-    'diff_replace': ['line', 'block', 'config'],
-    'output': ['text', 'json']
-}
-
 class HttpApi(HttpApiBase):
 
     def __init__(self, *args, **kwargs):
@@ -57,9 +49,8 @@ class HttpApi(HttpApiBase):
 
     def login(self, username, password):
         auth_path = '/auth/token'
-        contentType = {'content-type': 'application/json'}
         credentials = {'username': username, 'password': password }
-        self.send_request(path=auth_path, data=json.dumps(credentials), method='POST', headers=contentType)
+        self.send_request(path=auth_path, data=json.dumps(credentials), method='POST')
 
     def logout(self):
         pass
@@ -68,9 +59,13 @@ class HttpApi(HttpApiBase):
         return False
 
     def send_request(self, path, data=None, method='GET', **message_kwargs):
-        response, response_data = self.connection.send(path, data, cookies=self._auth_token, **message_kwargs)
+        headers = {'Content-Type': 'application/json'}
+        response, response_data = self.connection.send(path, data, method=method, cookies=self._auth_token, headers=headers, **message_kwargs)
         try:
-            response_data = json.loads(to_text(response_data.getvalue()))
+            if response.status = 204:
+                response_data = {}
+            else:
+                response_data = json.loads(to_text(response_data.getvalue()))
         except ValueError:
             raise ConnectionError('Response was not valid JSON, got {0}'.format(
                 to_text(response_data.getvalue())
@@ -87,6 +82,12 @@ class HttpApi(HttpApiBase):
             if not isinstance(cmd, Mapping):
                 cmd = {'command': cmd}
 
+            cmd['command'] = strip_run_script_cli2json(cmd['command'])
+
+            output = cmd.pop('output', None)
+            if output and output not in self.get_option_values().get('output'):
+                raise ValueError("'output' value is %s is invalid. Valid values are %s" % (output, ','.join(self.get_option_values().get('output'))))
+
             #TO DO: FIELDS NOT SUPPORTED
             if ('prompt', 'answer') in cmd:
                 pass
@@ -99,14 +100,31 @@ class HttpApi(HttpApiBase):
                 raise ConnectionError('Response was not valid JSON, got {0}'.format(
                     to_text(response_data.getvalue())
                 ))
-            responses.append(handle_response(response_data))
+
+            if response_data.get('error', None):
+                raise ConnectionError("Request Error, got {0}".format(response_data['error']))
+            if not response_data.get('result', None):
+                raise ConnectionError("Request Error, got {0}".format(response_data))
+
+            response_data = response_data['result']
+
+            if output and output == 'text':
+                statusOut = getKeyInResponse(response_data, 'status')
+                cliOut = getKeyInResponse(response_data, 'CLIoutput')
+                if statusOut == "ERROR":
+                    raise ConnectionError("Command error({1}) for request {0}".format(cmd['command'], cliOut))
+                if not cliOut :
+                    raise ValueError("Response for request {0} doesn't have the CLIoutput field, got {1}".format(cmd['command'], response_data))
+                response_data = cliOut
+
+            responses.append(response_data)
         return responses
 
     def get_device_info(self):
         device_info = {}
         device_info['network_os'] = 'exos'
 
-        reply = self.run_commands('show switch detail')
+        reply = self.run_commands({'command': 'show switch detail', 'output':'text'})
         data = to_text(reply, errors='surrogate_or_strict').strip()
 
         match = re.search(r'ExtremeXOS version  (\S+)', data)
@@ -131,7 +149,7 @@ class HttpApi(HttpApiBase):
                     'supports_defaults': True,             # identify if fetching running config with default is supported
                     'supports_commit_comment': False,      # identify if adding comment to commit is supported of not
                     'supports_onbox_diff': True,           # identify if on box diff capability is supported or not
-                    'supports_generate_diff': False,       # identify if diff capability is supported within plugin
+                    'supports_generate_diff': True,       # identify if diff capability is supported within plugin
                     'supports_multiline_delimiter': False, # identify if multiline demiliter is supported within config
                     'supports_diff_match': True,           # identify if match is supported
                     'supports_diff_ignore_lines': True,    # identify if ignore line in diff is supported
@@ -140,27 +158,61 @@ class HttpApi(HttpApiBase):
                     'supports_commit_label': False         # identify if commit label is supported or not
         }
 
+    def get_option_values(self):
+        return {
+            'format': ['text', 'json'],
+            'diff_match': ['line', 'strict', 'exact', 'none'],
+            'diff_replace': ['line', 'block'],
+            'output': ['text', 'json']
+        }
+
     def get_capabilities(self):
         result = {}
         result['rpc'] = []
         result['device_info'] = self.get_device_info()
         result['device_operations'] = self.get_device_operations()
-        result.update(OPTIONS)
+        result.update(self.get_option_values())
         result['network_api'] = 'exosapi'
-
         return json.dumps(result)
+
+    def get_config(self, source='running', format='text', flags=None):
+        options_values = self.get_option_values()
+        if format not in options_values['format']:
+            raise ValueError("'format' value %s is invalid. Valid values are %s" % (format, ','.join(options_values['format'])))
+
+        lookup = {'running': 'show configuration', 'startup': 'debug cfgmgr show configuration file'}
+        if source not in lookup:
+            raise ValueError("fetching configuration from %s is not supported" % source)
+
+        if source == 'running':
+            cmd = {'command' : lookup[source], 'output': 'text'}
+        else:
+            cmd = {'command' : lookup[source], 'output': 'text'}
+            reply = self.run_commands({'command': 'show switch', 'format': 'text'})
+            # DEFAULTS - No configuration to show # TO DO
+            data = to_text(reply, errors='surrogate_or_strict').strip()
+            match = re.search(r'Config Selected: +(\S+)\.cfg', data, re.MULTILINE)
+            if match:
+                cmd['command'] += ' '.join( match.group(1))
+                cmd['command'] = cmd['command'].strip()
+
+        cmd['command'] += ' '.join(to_list(flags))
+        cmd['command'] = cmd['command'].strip()
+
+        return self.run_commands(cmd)
 
 def request_builder(command, reqid=""):
     return json.dumps(dict(jsonrpc='2.0', id=reqid, method='cli', params=to_list(command)))
 
-def handle_response(response):
-    result = {}
-    if 'result' in response:
-        for item in response['result']:
-            if 'CLIoutput' in item:
-                result['CLIoutput'] = item['CLIoutput'][0]
-            if 'status' in item:
-                result['status'] = item['status']
-    if 'status' in result and result['status'] == 'ERROR':
-        raise ConnectionError(result['CLIoutput'])
-    return result['CLIoutput']
+def strip_run_script_cli2json(command):
+    if to_text(command, errors="surrogate_then_replace").startswith('run script cli2json.py'):
+        command = str(command).replace('run script cli2json.py', '')
+    return command
+
+def getKeyInResponse(response, key):
+    keyOut = None
+    for item in response:
+        if key in item:
+            keyOut = item[key]
+            break
+    return keyOut
