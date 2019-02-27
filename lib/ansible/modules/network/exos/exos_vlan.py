@@ -1,6 +1,6 @@
 #!/usr/bin/python
 #
-# (c) 2018 Extreme Networks Inc.
+# (c) 2019 Extreme Networks Inc.
 #
 # This file is part of Ansible
 #
@@ -27,14 +27,14 @@ ANSIBLE_METADATA = {'metadata_version': '1.1',
 DOCUMENTATION = """
 ---
 module: exos_vlan
-version_added: "2.7"
+version_added: "2.8"
 author: "Ruturaj Vyawahare (@ruturajvy)"
 short_description: Manage VLANs on Extreme Networks EXOS network devices
 description:
   - This module provides declarative management of VLANs
     on Extreme XOS network devices
 notes:
-  - Tested against EXOS 30.2.0.12
+  - Tested against EXOS 30.1.1.4
 options:
   name:
     description:
@@ -85,50 +85,86 @@ EXAMPLES = """
 - name: Create a VLAN configuration using aggregate
   exos_vlan:
     aggregate:
-      - { vlan_id: 300, name: test_vlan_1, description: test_vlan 1 }
-      - { vlan_id: 400, name: test_vlan_2, description: test_vlan 2 }
+      - { vlan_id: 300, name: test_vlan_1 }
+      - { vlan_id: 400, name: test_vlan_2 }
     state: present
 
 """
 
 RETURN = """
 commands:
-  description: Configuration difference before and after applying change.
+  description: Configuration difference in terms of POST, PATCH and DELETE requests
   returned: when configuration is changed
   type: list
   sample:
-    - vlan 100
-    - name test-vlan
+    "requests": [
+        {   "path": "/rest/restconf/data/openconfig-vlan:vlans/"
+            "data": "{\"openconfig-vlan:vlan\": [{\"config\": {\"vlan-id\": 700, \"status\": \"ACTIVE\", \"name\": \"ansible700\", \"tpid\": \"oc-vlan-types:TPID_0x8100\"}}]}",
+            "method": "POST"
+        },
+        {   "path": "/rest/restconf/data/openconfig-vlan:vlans/"
+            "data": "{\"openconfig-vlan:vlan\": [{\"config\": {\"vlan-id\": 777, \"status\": \"ACTIVE\", \"name\": \"ansible777\", \"tpid\": \"oc-vlan-types:TPID_0x8100\"}}]}",
+            "method": "POST"
+        }
+    ]
 """
-import json
 import time
+import json
 from copy import deepcopy
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.network.common.utils import conditional, remove_default_spec
-from ansible.module_utils.network.exos.exos import HttpApi as web
+from ansible.module_utils.network.exos.exos import send_requests
 
+# Base path for the RESTconf API endpoint
+def get_vlan_path():
+  vlan_path = "/rest/restconf/data/openconfig-vlan:vlans/"
+  return vlan_path
 
-# Maps the required configuration to a list of dictionaries with each dictionary having name, vlan_id, and interfaces as keys
+# Returns a JSON formatted body for POST and PATCH requests for vlan configuration
+def make_vlan_body(vlan_id, name):
+  vlan_body = {"openconfig-vlan:vlan":[{"config": {"vlan-id": None ,"status": "ACTIVE","tpid": "oc-vlan-types:TPID_0x8100","name": None}}]}
+  vlan_config = vlan_body["openconfig-vlan:vlan"][0]['config']
+  vlan_config['vlan-id'] = vlan_id
+  vlan_config['name'] = name
+  return json.dumps(vlan_body)
+
+# Maps the current configuration to a list of dictionaries each with format {vlan_id: int, name: str, interfaces: list()}
+def map_config_to_list(module):
+    path = get_vlan_path()
+    requests = [{"path":path}]
+    resp = send_requests(module, requests = requests)
+    old_config_list = list()
+    for vlan_json in resp: 
+      for vlan in vlan_json['openconfig-vlan:vlans']['vlan']:
+          old_config_list.append({
+          "name":vlan['config']['name'],
+          "vlan_id": vlan['config']['vlan-id'],
+          #interfaces to be implemented
+          })
+    return old_config_list
+
+# Maps the required configuration to a list of dictionaries each with format {vlan_id: int, name: str, interfaces: list(), state: choices}
 def map_params_to_list(module):
     params = module.params
     new_config_list = list()
     aggregate = params['aggregate']
     if aggregate:
+      # Completes each dictionary with the common parameters in the element spec
         for item in aggregate:
             for key in item:
                 if item.get(key) is None:
                     item[key] = module.params[key]
             d = item.copy()
+            d['vlan_id'] = int(d['vlan_id'])
             validate_vlan_id(module, d['vlan_id'])
-            d['vlan_id'] = str(d['vlan_id'])
             new_config_list.append(d)
     else:
-        new_config_list.append
-        ({
-        'vlan_id':params['vlan_id'],
-        'name':params['name'],
-        'interfaces':params['interfaces'],
-        'state':params['state']
+        validate_vlan_id(module, int(params['vlan_id']))
+        new_config_list.append({
+        "vlan_id":int(params['vlan_id']),
+        "name":params['name'],
+        "interfaces":params['interfaces'],
+        "state":params['state']
         })
     return new_config_list
 
@@ -139,21 +175,6 @@ def search_vlan_in_list(vlan_id, lst):
             return o
     return None
 
-# Maps the current configuration to a list of dictionaries with each dictionary having name, vlan_id, interfaces as keys
-def map_config_to_list(module):
-    requests = [{"path":"/rest/restconf/data/openconfig-vlan:vlans"}]
-    web_obj = web(module)
-    resp = web_obj.send_requests(requests)
-    vlan_json = json.loads(resp)
-    old_config_list = list()
-    for vlan in vlan_json['openconfig-vlan:vlans']['vlan']:
-        old_config_list.append({
-        'name':vlan['config']['name'],
-        'vlan_id': vlan['config']['vlan_id'],
-        'interfaces': [item['interface-ref']['state'] for item in vlan['members']['member']]
-        })
-    return old_config_list
-
 def map_diff_to_requests(module, old_config_list, new_config_list):
     requests = list()
     for new_config in new_config_list:
@@ -161,61 +182,51 @@ def map_diff_to_requests(module, old_config_list, new_config_list):
         name = new_config['name']
         interfaces = new_config['interfaces']
         state = new_config['state']
-        vlan_dict = search_vlan_in_list(vlan_id, old_config_list)  # These VLANs are already configured
-
+        # Check if the VLAN is already configured
+        vlan_dict = search_vlan_in_list(vlan_id, old_config_list)
         if state == 'absent':
+            # Not working because of the DELETE method
             if vlan_dict:
-                path = "/rest/restconf/data/openconfig-vlan:vlans/vlan=" + str(vlan_id)
+                path = get_vlan_path() + "vlan=" + str(vlan_id)
                 requests.append({"path": path, "method":"DELETE"})
         elif state == 'present':
             if not vlan_dict:
                 if name:
-                    path = "/rest/restconf/data/openconfig-vlan:vlans/"
-                    body = json.dumps({"openconfig-vlan:vlan":[{"config": {"vlan-id": str(vlan_id) ,"status": "ACTIVE","tpid": "oc-vlan-types:TPID_0x8100","name": name}}]})
+                    path = get_vlan_path()
+                    body = make_vlan_body(vlan_id, name)
                     requests.append({"path": path, "method":"POST", "data": body})
-                # What if just id is given
                 if interfaces:
-                    pass
+                    pass # To be implemented
             else:
                 if name:
                     if name!=vlan_dict['name']:
-                        path = "/rest/restconf/data/openconfig-vlan:vlans/"
-                        body = json.dumps({"openconfig-vlan:vlan":[{"config": {"vlan-id": str(vlan_id) ,"status": "ACTIVE","tpid": "oc-vlan-types:TPID_0x8100","name": name}}]})
-                        requests.append({"path": path, "method":"POST", "data": body})
-                    
+                        path = get_vlan_path() + 'vlan=' + str(vlan_id)
+                        body = make_vlan_body(vlan_id, name)                        
+                        requests.append({"path": path , "method":"PATCH", "data": body})    
                 if interfaces:
-                    pass
-                
-        
-        return requests
-def change_configuration(module,requests):
-    web_obj = web(module)
-    web_obj.send_requests(requests)            
+                    pass             
+    return requests
 
+# Sends the HTTP requests to the switch API endpoints
+def change_configuration(module,requests):
+  send_requests(module, requests = requests)            
+
+# Sanity check for the VLAN ID
 def validate_vlan_id(module, vlan):
-    if vlan and not 1 <= vlan <= 4094:
+    if vlan and not 1 <= int(vlan) <= 4094:
         module.fail_json(msg='vlan_id must be between 1 and 4094')
 
-def to_param_list(module):
-    aggregate = module.params.get('aggregate')
-    if aggregate:
-        if isinstance(aggregate, dict):
-            return [aggregate]
-        else:
-            return aggregate
-    else:
-        return [module.params]
-
-def check_declarative_intent_params(want, module):
+# To check after a delay that the interfaces are in the VLAN 
+def check_declarative_intent_params(new_config_list, module):
     if module.params['interfaces']:
         time.sleep(module.params['delay'])
-        old_config_list = map_config_to_list(module)
 
-        for w in want:
-            for i in w['interfaces']:
-                obj_in_have = search_vlan_in_list(w['vlan_id'], old_config_list)
-                if obj_in_have and 'interfaces' in obj_in_have and i not in obj_in_have['interfaces']:
-                    module.fail_json(msg="Interface %s not configured on vlan %s" % (i, w['vlan_id']))
+        old_config_list = map_config_to_list(module)        # Contains all VLAN objects in new configuration 
+        for newconfs in new_config_list:
+            for i in newconfs['interfaces']:
+                vlan_dict = search_vlan_in_list(newconfs['vlan_id'], old_config_list)
+                if vlan_dict and 'interfaces' in vlan_dict and i not in vlan_dict['interfaces']:
+                    module.fail_json(msg="Interface %s not configured on vlan %s" % (i, newconfs['vlan_id']))
 def main():
     """ main entry point for module execution
     """
@@ -231,7 +242,7 @@ def main():
     aggregate_spec = deepcopy(element_spec)
     aggregate_spec['vlan_id'] = dict(required=True)
 
-    # remove default in aggregate spec, to handle common arguments
+    # Removes default values from aggregate spec
     remove_default_spec(aggregate_spec)
 
     argument_spec = dict(
@@ -253,9 +264,9 @@ def main():
     result = {'changed': False}
     if warnings:
         result['warnings'] = warnings
-
-    new_config_list = map_params_to_list(module)
     old_config_list = map_config_to_list(module)
+    new_config_list = map_params_to_list(module)
+    
     requests = map_diff_to_requests(module, old_config_list, new_config_list)
     result['requests'] = requests
 
@@ -265,10 +276,11 @@ def main():
         result['changed'] = True
 
     if result['changed']:
-        check_declarative_intent_params(old_config_list, module)
-
+        check_declarative_intent_params(new_config_list, module)
+    
     module.exit_json(**result)
 
 
 if __name__ == '__main__':
     main()
+  
