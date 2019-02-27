@@ -40,6 +40,12 @@ class Cli:
         self._device_configs = {}
         self._connection = None
 
+    def get_capabilities(self):
+        """Returns platform info of the remove device
+        """
+        connection = self._get_connection()
+        return json.loads(connection.get_capabilities())
+
     def _get_connection(self):
         if not self._connection:
             self._connection = Connection(self._module._socket_path)
@@ -61,10 +67,15 @@ class Cli:
             self._device_configs = cfg
             return cfg
 
-    def send_requests(self, requests):
-        pass
+    def load_config(self, commands):
+        """Loads the configuration onto the remote devices
+        """
+        connection = self._get_connection()
+        out = connection.edit_config(commands)
 
-    def run_commands(self, commands, check_rc=True):    
+    def run_commands(self, commands, check_rc=True):
+        """Runs list of commands on remote device and returns results
+        """
         connection = self._get_connection()
         try:
             response = connection.run_commands(commands=commands, check_rc=check_rc)
@@ -72,47 +83,11 @@ class Cli:
             self._module.fail_json(msg=to_text(exc, errors='surrogate_then_replace'))
         return response
 
-    def load_config(self, commands):
-        connection = self._get_connection()
-        out = connection.edit_config(commands)
-
-    def get_capabilities(self):
-        connection = self._get_connection()
-        return json.loads(connection.get_capabilities())
-
 class HttpApi:
     def __init__(self, module):
         self._module = module
         self._device_configs = {}
         self._connection_obj = None
-
-    @property
-    def _connection(self):
-        if not self._connection_obj:
-            self._connection_obj = Connection(self._module._socket_path)
-        return self._connection_obj
-
-    def run_commands(self, commands, check_rc=True):
-        try:
-            response = self._connection.run_commands(commands=commands, check_rc=check_rc)
-        except ConnectionError as exc:
-            self._module.fail_json(msg=to_text(exc, errors='surrogate_then_replace'))
-        return response
-
-    def send_requests(self, requests):
-        if requests is None:
-            raise ValueError("'requests' value is required")
-
-        responses = list()
-        for req in to_list(requests):
-            if isinstance(req, Mapping):
-                path = req.pop('path')
-            try:
-                response = self._connection.send_request(path, **req)
-            except ConnectionError as exc:
-                self._module.fail_json(msg=to_text(exc, errors='surrogate_then_replace'))
-            responses.append(response)
-        return responses
 
     def get_capabilities(self):
         """Returns platform info of the remove device
@@ -124,33 +99,62 @@ class HttpApi:
 
         return json.loads(capabilities)
 
+    @property
+    def _connection(self):
+        if not self._connection_obj:
+            self._connection_obj = Connection(self._module._socket_path)
+        return self._connection_obj
+
+    def get_config(self, flags=None):
+        """Retrieves the current config from the device or cache
+        """
+        flags = [] if flags is None else flags
+        try:
+            return self._device_configs
+        except KeyError:
+            connection = self._get_connection()
+            try:
+                out = connection.get_config(flags=flags)
+            except ConnectionError as exc:
+                self._module.fail_json(msg=to_text(exc, errors='surrogate_then_replace'))
+            cfg = to_text(out, errors='surrogate_then_replace').strip()
+            self._device_configs = cfg
+            return cfg
+
     def load_config(self, commands):
+        """Loads the configuration onto the remote devices
+        """
+        # TO DO - Not supported? Or Just run_commands?
         pass
+
+    def run_commands(self, commands, check_rc=True):
+        """Runs list of commands on remote device and returns results
+        """
+        try:
+            response = self._connection.run_commands(commands=commands, check_rc=check_rc)
+        except ConnectionError as exc:
+            self._module.fail_json(msg=to_text(exc, errors='surrogate_then_replace'))
+        return response
+
+    def send_requests(self, requests):
+        """Send a list of http requests to remote device and return results
+        """
+        if requests is None:
+            raise ValueError("'requests' value is required")
+
+        responses = list()
+        for req in to_list(requests):
+            try:
+                response = self._connection.send_request(**req)
+            except ConnectionError as exc:
+                self._module.fail_json(msg=to_text(exc, errors='surrogate_then_replace'))
+            responses.append(response)
+        return responses
 
 
 def get_capabilities(module):
     conn = get_connection(module)
     return conn.get_capabilities()
-
-
-def load_config(module, config):
-    conn = get_connection(module)
-    return conn.load_config(config)
-
-
-def run_commands(module, commands, check_rc=True):
-    conn = get_connection(module)
-    return conn.run_commands(to_command(module, commands), check_rc=check_rc)
-
-def send_requests(module, requests):
-    conn = get_connection(module)
-    return conn.send_requests(to_request(module, requests))
-
-def get_config(module, flags=None):
-    flags = None if flags is None else flags
-    conn = get_connection(module)
-    return conn.get_config(flags)
-
 
 def get_connection(module):
     global _DEVICE_CONNECTION
@@ -166,10 +170,23 @@ def get_connection(module):
         _DEVICE_CONNECTION = conn
     return _DEVICE_CONNECTION
 
+def get_config(module, flags=None):
+    flags = None if flags is None else flags
+    conn = get_connection(module)
+    return conn.get_config(flags)
+
+def load_config(module, config):
+    conn = get_connection(module)
+    return conn.load_config(config)
+
+def run_commands(module, commands, check_rc=True):
+    conn = get_connection(module)
+    return conn.run_commands(to_command(module, commands), check_rc=check_rc)
 
 def to_command(module, commands):
     transform = ComplexList(dict(
         command=dict(key=True),
+        output=dict(default='text'),
         prompt=dict(type='list'),
         answer=dict(type='list'),
         sendonly=dict(type='bool', default=False),
@@ -177,9 +194,13 @@ def to_command(module, commands):
     ), module)
     return transform(to_list(commands))
 
+def send_requests(module, requests):
+    conn = get_connection(module)
+    return conn.send_requests(to_request(module, requests))
+
 def to_request(module, requests):
     transform = ComplexList(dict(
-        request=dict(key=True),
+        path=dict(key=True),
         method=dict(),
         data=dict(),
     ), module)
