@@ -28,4 +28,6 @@ class ActionModule(ActionNetworkModule):
         del tmp  # tmp no longer has any effect
 
         self._config_module = True
+        if self._play_context.connection == 'network_cli' and self._task.action not in ('exos_facts', 'exos_config', 'exos_command'):
+            return {'failed': True, 'msg': "Connection type %s is not valid for this module" % self._play_context.connection}
         return super(ActionModule, self).run(task_vars=task_vars)
