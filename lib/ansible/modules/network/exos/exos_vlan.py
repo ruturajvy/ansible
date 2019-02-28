@@ -177,20 +177,22 @@ def search_vlan_in_list(vlan_id, lst):
 
 def map_diff_to_requests(module, old_config_list, new_config_list):
     requests = list()
+    purge = module.params['purge']
     for new_config in new_config_list:
         vlan_id = new_config['vlan_id']
         name = new_config['name']
         interfaces = new_config['interfaces']
         state = new_config['state']
+        
         # Check if the VLAN is already configured
-        vlan_dict = search_vlan_in_list(vlan_id, old_config_list)
+        old_vlan_dict = search_vlan_in_list(vlan_id, old_config_list)
         if state == 'absent':
             # Not working because of the DELETE method
-            if vlan_dict:
+            if old_vlan_dict:
                 path = get_vlan_path() + "vlan=" + str(vlan_id)
                 requests.append({"path": path, "method":"DELETE"})
         elif state == 'present':
-            if not vlan_dict:
+            if not old_vlan_dict:
                 if name:
                     path = get_vlan_path()
                     body = make_vlan_body(vlan_id, name)
@@ -199,12 +201,20 @@ def map_diff_to_requests(module, old_config_list, new_config_list):
                     pass # To be implemented
             else:
                 if name:
-                    if name!=vlan_dict['name']:
+                    if name!=old_vlan_dict['name']:
                         path = get_vlan_path() + 'vlan=' + str(vlan_id)
                         body = make_vlan_body(vlan_id, name)                        
                         requests.append({"path": path , "method":"PATCH", "data": body})    
                 if interfaces:
-                    pass             
+                    pass
+    if purge:
+      for old_config in old_config_list:
+        new_vlan_dict = search_vlan_in_list(old_config['vlan_id'], new_config_list)
+        if new_vlan_dict is None:
+          path = get_vlan_path() + "vlan=" + str(old_config['vlan_id'])
+          requests.append({"path": path, "method":"DELETE"})
+
+
     return requests
 
 # Sends the HTTP requests to the switch API endpoints
