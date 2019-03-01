@@ -168,7 +168,7 @@ def map_params_to_list(module):
         })
     return new_config_list
 
-# Returns in the dictionary with the vlan in the list ( used for searching in old_config_list)    
+# Returns the vlan object from the list if the vlan_id is present in it    
 def search_vlan_in_list(vlan_id, lst):
     for o in lst:
         if o['vlan_id'] == vlan_id:
@@ -194,6 +194,7 @@ def map_diff_to_requests(module, old_config_list, new_config_list):
         elif state == 'present':
             if not old_vlan_dict:
                 if name:
+                    
                     path = get_vlan_path()
                     body = make_vlan_body(vlan_id, name)
                     requests.append({"path": path, "method":"POST", "data": body})
@@ -213,7 +214,6 @@ def map_diff_to_requests(module, old_config_list, new_config_list):
         if new_vlan_dict is None:
           path = get_vlan_path() + "vlan=" + str(old_config['vlan_id'])
           requests.append({"path": path, "method":"DELETE"})
-
 
     return requests
 
@@ -283,8 +283,13 @@ def main():
     if requests:
         if not module.check_mode:
             change_configuration(module, requests)
+        for request in requests:
+          try:
+            request['data'] = json.loads(request['data'])
+          except:
+            continue
         result['changed'] = True
-
+    
     if result['changed']:
         check_declarative_intent_params(new_config_list, module)
     
