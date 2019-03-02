@@ -77,6 +77,13 @@ class Cli:
             self._module.fail_json(msg=to_text(exc, errors='surrogate_then_replace'))
         return response
 
+    def get_diff(self, candidate=None, running=None, diff_match='line', diff_ignore_lines=None, path=None, diff_replace='line'):
+        conn = self._get_connection()
+        try:
+            diff = conn.get_diff(candidate=candidate, running=running, diff_match=diff_match, diff_ignore_lines=diff_ignore_lines, path=path, diff_replace=diff_replace)
+        except ConnectionError as exc:
+            self._module.fail_json(msg=to_text(exc, errors='surrogate_then_replace'))
+        return diff
 class HttpApi:
     def __init__(self, module):
         self._module = module
@@ -138,6 +145,12 @@ class HttpApi:
             responses.append(response)
         return responses
 
+    def get_diff(self, candidate=None, running=None, diff_match='line', diff_ignore_lines=None, path=None, diff_replace='line'):
+        try:
+            diff = self._connection.get_diff(candidate=candidate, running=running, diff_match=diff_match, diff_ignore_lines=diff_ignore_lines, path=path, diff_replace=diff_replace)
+        except ConnectionError as exc:
+            self._module.fail_json(msg=to_text(exc, errors='surrogate_then_replace'))
+        return diff
 
 def get_capabilities(module):
     conn = get_connection(module)
@@ -192,3 +205,7 @@ def to_request(module, requests):
         data=dict(),
     ), module)
     return transform(to_list(requests))
+
+def get_diff(module, candidate=None, running=None, diff_match='line', diff_ignore_lines=None, path=None, diff_replace='line'):
+    conn = get_connection(module)
+    return conn.get_diff(candidate=candidate, running=running, diff_match=diff_match, diff_ignore_lines=diff_ignore_lines, path=path, diff_replace=diff_replace)

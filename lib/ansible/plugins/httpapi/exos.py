@@ -39,6 +39,7 @@ from ansible.module_utils.network.common.utils import to_list
 from ansible.plugins.httpapi import HttpApiBase
 import ansible.module_utils.six.moves.http_cookiejar as cookiejar
 from ansible.module_utils.common._collections_compat import Mapping
+from ansible.module_utils.network.common.config import NetworkConfig, dumps
 
 class HttpApi(HttpApiBase):
 
@@ -148,8 +149,8 @@ class HttpApi(HttpApiBase):
                     'supports_rollback': False,            # identify if rollback is supported or not
                     'supports_defaults': True,             # identify if fetching running config with default is supported
                     'supports_commit_comment': False,      # identify if adding comment to commit is supported of not
-                    'supports_onbox_diff': True,           # identify if on box diff capability is supported or not
-                    'supports_generate_diff': True,       # identify if diff capability is supported within plugin
+                    'supports_onbox_diff': False,          # identify if on box diff capability is supported or not
+                    'supports_generate_diff': True,        # identify if diff capability is supported within plugin
                     'supports_multiline_delimiter': False, # identify if multiline demiliter is supported within config
                     'supports_diff_match': True,           # identify if match is supported
                     'supports_diff_ignore_lines': True,    # identify if ignore line in diff is supported
@@ -168,12 +169,45 @@ class HttpApi(HttpApiBase):
 
     def get_capabilities(self):
         result = {}
-        result['rpc'] = []
+        result['rpc'] = ['get_default_flag', 'run_commands', 'get_config', 'send_request', 'get_capabilities', 'get_diff']
         result['device_info'] = self.get_device_info()
         result['device_operations'] = self.get_device_operations()
         result.update(self.get_option_values())
         result['network_api'] = 'exosapi'
         return json.dumps(result)
+
+    def get_default_flag(self):
+        # The flag to modify the command to collect configuration with defaults
+        return 'detail'
+
+    def get_diff(self, candidate=None, running=None, diff_match='line', diff_ignore_lines=None, path=None, diff_replace='line'):
+        diff = {}
+        device_operations = self.get_device_operations()
+        option_values = self.get_option_values()
+
+        if candidate is None and device_operations['supports_generate_diff']:
+            raise ValueError("candidate configuration is required to generate diff")
+
+        if diff_match not in option_values['diff_match']:
+            raise ValueError("'match' value %s in invalid, valid values are %s" % (diff_match, ', '.join(option_values['diff_match'])))
+
+        if diff_replace not in option_values['diff_replace']:
+            raise ValueError("'replace' value %s in invalid, valid values are %s" % (diff_replace, ', '.join(option_values['diff_replace'])))
+
+        # prepare candidate configuration
+        candidate_obj = NetworkConfig(indent=1)
+        candidate_obj.load(candidate)
+
+        if running and diff_match != 'none' and diff_replace != 'config':
+            # running configuration
+            running_obj = NetworkConfig(indent=1, contents=running, ignore_lines=diff_ignore_lines)
+            configdiffobjs = candidate_obj.difference(running_obj, path=path, match=diff_match, replace=diff_replace)
+
+        else:
+            configdiffobjs = candidate_obj.items
+
+        diff['config_diff'] = dumps(configdiffobjs, 'commands') if configdiffobjs else ''
+        return diff
 
     def get_config(self, source='running', format='text', flags=None):
         options_values = self.get_option_values()
