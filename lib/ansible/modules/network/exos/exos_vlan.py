@@ -117,17 +117,29 @@ from ansible.module_utils.network.exos.exos import send_requests
 
 # Base path for the RESTconf API endpoint
 def get_vlan_path():
-  vlan_path = "/rest/restconf/data/openconfig-vlan:vlans/"
-  return vlan_path
-
+    vlan_path = "/rest/restconf/data/openconfig-vlan:vlans/"
+    return vlan_path
+def get_interface_path(interface):
+    interface_path = '/rest/restconf/data/openconfig-interfaces:interfaces/interface='+ interface +'/openconfig--if-ethernet:ethernet/openconfig-vlan:switched-vlan/'
+    return interface_path
+    
 # Returns a JSON formatted body for POST and PATCH requests for vlan configuration
 def make_vlan_body(vlan_id, name):
-  vlan_body = {"openconfig-vlan:vlan":[{"config": {"vlan-id": None ,"status": "ACTIVE","tpid": "oc-vlan-types:TPID_0x8100","name": None}}]}
-  vlan_config = vlan_body["openconfig-vlan:vlan"][0]['config']
-  vlan_config['vlan-id'] = vlan_id
-  vlan_config['name'] = name
-  return json.dumps(vlan_body)
-
+    vlan_body = {"openconfig-vlan:vlan":[{"config": {"vlan-id": None ,"status": "ACTIVE","tpid": "oc-vlan-types:TPID_0x8100","name": None}}]}
+    vlan_config = vlan_body["openconfig-vlan:vlan"][0]['config']
+    vlan_config['vlan-id'] = vlan_id
+    vlan_config['name'] = name
+    return json.dumps(vlan_body)
+def make_interface_body(vlan_id):
+    vlan_body = {
+    "openconfig-vlan:switched-vlan": {
+        "config": {
+            "access-vlan": vlan_id,
+            "interface-mode": "ACCESS"
+        }
+    }
+}
+    return json.dumps(vlan_body)
 # Maps the current configuration to a list of dictionaries each with format {vlan_id: int, name: str, interfaces: list()}
 def map_config_to_list(module):
     path = get_vlan_path()
@@ -135,12 +147,16 @@ def map_config_to_list(module):
     resp = send_requests(module, requests = requests)
     old_config_list = list()
     for vlan_json in resp: 
-      for vlan in vlan_json['openconfig-vlan:vlans']['vlan']:
-          old_config_list.append({
-          "name":vlan['config']['name'],
-          "vlan_id": vlan['config']['vlan-id'],
-          #interfaces to be implemented
-          })
+        for vlan in vlan_json['openconfig-vlan:vlans']['vlan']:
+            interfaces = []
+            if 'members' in vlan:
+                for member in vlan['members']['member']:
+                    interfaces.append(member['interface-ref']['state']['interface'])
+            old_config_list.append({
+            "name":vlan['config']['name'],
+            "vlan_id": vlan['config']['vlan-id'],
+            "interfaces": interfaces
+            })
     return old_config_list
 
 # Maps the required configuration to a list of dictionaries each with format {vlan_id: int, name: str, interfaces: list(), state: choices}
@@ -194,12 +210,14 @@ def map_diff_to_requests(module, old_config_list, new_config_list):
         elif state == 'present':
             if not old_vlan_dict:
                 if name:
-                    
                     path = get_vlan_path()
                     body = make_vlan_body(vlan_id, name)
                     requests.append({"path": path, "method":"POST", "data": body})
                 if interfaces:
-                    pass # To be implemented
+                    for interface in interfaces:
+                        path = get_interface_path(interface)
+                        body = make_interface_body(vlan_id)
+                        requests.append({"path": path, "method":"PATCH", "data": body})
             else:
                 if name:
                     if name!=old_vlan_dict['name']:
@@ -207,7 +225,22 @@ def map_diff_to_requests(module, old_config_list, new_config_list):
                         body = make_vlan_body(vlan_id, name)                        
                         requests.append({"path": path , "method":"PATCH", "data": body})    
                 if interfaces:
-                    pass
+                    if not old_vlan_dict['interfaces']:
+                        for interface in interfaces:
+                            path = get_interface_path(interface)
+                            body = make_interface_body(vlan_id)
+                            requests.append({"path": path, "method":"PATCH", "data": body})
+                    elif set(interfaces) != set(old_vlan_dict['interfaces']):
+                        missing_interfaces = list(set(interfaces) - set(old_vlan_dict['interfaces']))
+                        for interface in missing_interfaces:
+                            path = get_interface_path(interface)
+                            body = make_interface_body(vlan_id)
+                            requests.append({"path": path, "method":"PATCH", "data": body})
+                        superfluous_interfaces = list(set(old_vlan_dict['interfaces']) - set(interfaces))
+                        for interface in superfluous_interfaces:
+                            path = get_interface_path("1")
+                            body = make_interface_body(1)
+                            requests.append({"path": path, "method":"PATCH", "data": body})
     if purge:
       for old_config in old_config_list:
         new_vlan_dict = search_vlan_in_list(old_config['vlan_id'], new_config_list)
@@ -284,10 +317,8 @@ def main():
         if not module.check_mode:
             change_configuration(module, requests)
         for request in requests:
-          try:
-            request['data'] = json.loads(request['data'])
-          except:
-            continue
+            if 'data' in request:
+                request['data'] = json.loads(request['data'])
         result['changed'] = True
     
     if result['changed']:
