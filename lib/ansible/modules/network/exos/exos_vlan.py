@@ -98,15 +98,40 @@ commands:
   type: list
   sample:
     "requests": [
-        {   "path": "/rest/restconf/data/openconfig-vlan:vlans/"
-            "data": "{\"openconfig-vlan:vlan\": [{\"config\": {\"vlan-id\": 700, \"status\": \"ACTIVE\", \"name\": \"ansible700\", \"tpid\": \"oc-vlan-types:TPID_0x8100\"}}]}",
-            "method": "POST"
+        {
+            "data": {
+                "openconfig-vlan:vlan": [
+                    {
+                        "config": {
+                            "name": "ansible_100",
+                            "status": "ACTIVE",
+                            "tpid": "oc-vlan-types:TPID_0x8100",
+                            "vlan-id": 100
+                        }
+                    }
+                ]
+            },
+            "method": "POST",
+            "path": "/rest/restconf/data/openconfig-vlan:vlans/"
         },
-        {   "path": "/rest/restconf/data/openconfig-vlan:vlans/"
-            "data": "{\"openconfig-vlan:vlan\": [{\"config\": {\"vlan-id\": 777, \"status\": \"ACTIVE\", \"name\": \"ansible777\", \"tpid\": \"oc-vlan-types:TPID_0x8100\"}}]}",
-            "method": "POST"
+        {
+            "data": {
+                "openconfig-vlan:vlan": [
+                    {
+                        "config": {
+                            "name": "ansible_200",
+                            "status": "ACTIVE",
+                            "tpid": "oc-vlan-types:TPID_0x8100",
+                            "vlan-id": 200
+                        }
+                    }
+                ]
+            },
+            "method": "POST",
+            "path": "/rest/restconf/data/openconfig-vlan:vlans/"
         }
     ]
+}
 """
 import time
 import json
@@ -114,6 +139,7 @@ from copy import deepcopy
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.network.common.utils import conditional, remove_default_spec
 from ansible.module_utils.network.exos.exos import send_requests
+from ansible.module_utils.connection import ConnectionError
 
 # Base path for the RESTconf API endpoint
 def get_vlan_path():
@@ -199,7 +225,10 @@ def map_diff_to_requests(module, old_config_list, new_config_list):
         name = new_config['name']
         interfaces = new_config['interfaces']
         state = new_config['state']
-        
+        if name:
+            for old_vlan in old_config_list:
+                if name == old_vlan['name'] and vlan_id != old_vlan['vlan_id']:
+                    module.fail_json(msg="VLAN %s is already configured with the name %s. Choose another name for VLAN %s" %(old_vlan['vlan_id'], name, vlan_id))
         # Check if the VLAN is already configured
         old_vlan_dict = search_vlan_in_list(vlan_id, old_config_list)
         if state == 'absent':
@@ -244,7 +273,7 @@ def map_diff_to_requests(module, old_config_list, new_config_list):
     if purge:
       for old_config in old_config_list:
         new_vlan_dict = search_vlan_in_list(old_config['vlan_id'], new_config_list)
-        if new_vlan_dict is None:
+        if new_vlan_dict is None and old_config['name'] != 'Default':
           path = get_vlan_path() + "vlan=" + str(old_config['vlan_id'])
           requests.append({"path": path, "method":"DELETE"})
 
@@ -318,7 +347,8 @@ def main():
             change_configuration(module, requests)
         for request in requests:
             if 'data' in request:
-                request['data'] = json.loads(request['data'])
+                if request['data']:
+                    request['data'] = json.loads(request['data'])
         result['changed'] = True
     
     if result['changed']:
