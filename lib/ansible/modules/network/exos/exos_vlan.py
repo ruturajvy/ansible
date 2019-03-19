@@ -352,7 +352,7 @@ def main():
     )
 
     aggregate_spec = deepcopy(element_spec)
-    aggregate_spec['vlan_id'] = dict(required=True)
+    aggregate_spec['vlan_id'] = dict(type='int', required=True)
 
     # Removes default values from aggregate spec
     remove_default_spec(aggregate_spec)

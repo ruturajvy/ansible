@@ -63,13 +63,13 @@ class TestExosVlanModule(TestExosModule):
 
             if method != 'DELETE':
                 vlan_body = {'openconfig-vlan:vlan': [{
-                                'config': {
-                                    'vlan-id': None,
-                                    'status': 'ACTIVE',
-                                    'tpid': 'oc-vlan-types:TPID_0x8100',
-                                    'name': None
-                                }
-                            }]}
+                    'config': {
+                        'vlan-id': None,
+                        'status': 'ACTIVE',
+                        'tpid': 'oc-vlan-types:TPID_0x8100',
+                        'name': None
+                    }
+                }]}
                 vlan_config = vlan_body['openconfig-vlan:vlan'][0]['config']
                 vlan_config['vlan-id'] = vlan_id
                 vlan_config['name'] = name
