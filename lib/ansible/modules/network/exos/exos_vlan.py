@@ -137,9 +137,7 @@ import json
 from copy import deepcopy
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.network.common.utils import remove_default_spec
-from ansible.module_utils.network.exos.exos import send_requests
-
-
+from ansible.module_utils.network.restconf.restconf import get, edit_config
 # Base path for the RESTconf API endpoint
 def get_vlan_path():
     vlan_path = "/rest/restconf/data/openconfig-vlan:vlans/"
@@ -187,18 +185,18 @@ def make_interface_body(vlan_id):
 def map_config_to_list(module):
     path = get_vlan_path()
     requests = [{"path": path}]
-    resp = send_requests(module, requests=requests)
+    resp = get(module, path)
+    # raise ConnectionError(resp)
     old_config_list = list()
-    for vlan_json in resp:
-        for vlan in vlan_json['openconfig-vlan:vlans']['vlan']:
-            interfaces = []
-            if 'members' in vlan:
-                for member in vlan['members']['member']:
-                    interfaces.append(member['interface-ref']['state']['interface'])
+    for vlan in resp['openconfig-vlan:vlans']['vlan']:
+        interfaces = []
+        if 'members' in vlan:
+            for member in vlan['members']['member']:
+                interfaces.append(member['interface-ref']['state']['interface'])
 
-            old_config_list.append({"name": vlan['config']['name'],
-                                    "vlan_id": vlan['config']['vlan-id'],
-                                    "interfaces": interfaces})
+        old_config_list.append({"name": vlan['config']['name'],
+                                "vlan_id": vlan['config']['vlan-id'],
+                                "interfaces": interfaces})
     return old_config_list
 
 
@@ -318,7 +316,10 @@ def map_diff_to_requests(module, old_config_list, new_config_list):
 
 # Sends the HTTP requests to the switch API endpoints
 def change_configuration(module, requests):
-    send_requests(module, requests=requests)
+    for request in requests:
+        if 'data' not in request:
+            request['data'] = None
+        edit_config(module, request['path'], request['data'], request['method'])
 
 
 # Sanity check for the VLAN ID
