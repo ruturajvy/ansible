@@ -52,7 +52,7 @@ class HttpApi(HttpApiBase):
     def login(self, username, password):
         auth_path = '/auth/token'
         credentials = {'username': username, 'password': password}
-        self.send_request(path=auth_path, data=json.dumps(credentials), method='POST')
+        self.send_request(data=json.dumps(credentials), path=auth_path, method='POST')
 
     def logout(self):
         pass
@@ -60,8 +60,12 @@ class HttpApi(HttpApiBase):
     def handle_httperror(self, exc):
         return False
 
-    def send_request(self, path, data=None, method='GET', **message_kwargs):
+    def send_request(self, data=None, path=None, method='GET', **message_kwargs):
         headers = {'Content-Type': 'application/json'}
+        if 'accept' in message_kwargs:
+            message_kwargs.pop('accept')
+        if 'content_type' in message_kwargs:
+            message_kwargs.pop('content_type')
         response, response_data = self.connection.send(path, data, method=method, cookies=self._auth_token, headers=headers, **message_kwargs)
         try:
             if response.status == 204:
