@@ -1,0 +1,45 @@
+---
+- debug: msg="START EXOS_VLAN create.yaml test on connection={{ ansible_connection }}"
+
+- name: Create vlan
+  exos_vlan:
+    vlan_id: 700
+    name: ansible_700
+    state: present
+  register: result
+- assert:
+    that:
+      - "result.requests[0].method == 'POST'"
+      - "result.requests[0].path == '/rest/restconf/data/openconfig-vlan:vlans/'"
+      - "result.requests[0].data"
+
+- name: Idempotent creation
+  exos_vlan:
+    vlan_id: 700
+    name: ansible_700
+    state: present
+  register: result
+
+- assert:
+    that:
+      - "result.changed == False"
+
+- name: Change the name of a VLAN
+  exos_vlan: 
+    vlan_id: 700
+    name: name_changed_700
+    state: present
+  register: result
+
+- assert: 
+    that:
+      - "result.requests[0].method == 'PATCH'"
+      - "result.changed == True"
+
+- name: Teardown for create
+  exos_config:
+    lines: 
+      - delete vlan 700
+
+      
+- debug: msg="END EXOS_VLAN create.yaml test on connection={{ ansible_connection }}"

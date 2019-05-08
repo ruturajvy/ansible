@@ -1,0 +1,35 @@
+---
+- debug: msg="START EXOS_VLAN delete.yaml test on connection={{ ansible_connection }}"
+
+- name: Setup for the test
+  exos_config:
+    lines: 
+      - create vlan 700
+
+- name: Delete vlan
+  exos_vlan:
+    vlan_id: 700
+    state: absent
+  register: result
+- assert:
+    that:
+      - "result.requests[0].method == 'DELETE'"
+      - "result.requests[0].path == '/rest/restconf/data/openconfig-vlan:vlans/vlan=700'"
+
+- name: Idempotent deletion
+  exos_vlan:
+    vlan_id: 700
+    state: absent
+  register: result
+
+- assert:
+    that:
+      - "result.changed == False"
+
+- name: Teardown for delete
+  exos_config:
+    lines: 
+      - delete vlan 700
+  ignore_errors: yes
+      
+- debug: msg="END EXOS_VLAN delete.yaml test on connection={{ ansible_connection }}"

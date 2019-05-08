@@ -1,0 +1,28 @@
+---
+- debug: msg="START EXOS_VLAN interfaces.yaml test on connection={{ ansible_connection }}"
+
+
+- name: Another setup for the test
+  exos_config: 
+    lines:
+      - create vlan 700
+      - configure vlan VLAN_0700 add ports 7 tagged
+      - configure vlan VLAN_0700 add ports 8 tagged
+
+- name: Add interfaces to vlan 700
+  exos_vlan:
+    vlan_id: 700
+    interfaces: ['7','8','9']
+  register: result
+- assert:
+    that:
+      - "result.requests[0].method == 'PATCH'"
+      - "result.requests[0].path == '/rest/restconf/data/openconfig-interfaces:interfaces/interface=9/openconfig--if-ethernet:ethernet/openconfig-vlan:switched-vlan/'"
+      - "result.requests[0].data"
+
+- name: Teardown for create
+  exos_config:
+    lines: 
+      - delete vlan 700
+      
+- debug: msg="END EXOS_VLAN interfaces.yaml test on connection={{ ansible_connection }}"

@@ -1,0 +1,43 @@
+---
+- debug: msg="START EXOS_VLAN purge.yaml on connection={{ ansible_connection }}"
+
+- name: Setup for purge
+  exos_config:
+    lines:
+    - create vlan 100
+  ignore_errors: true
+  
+- name: Testing the VLAN module
+  exos_vlan:
+    aggregate:
+    - {vlan_id: '500', name: ansible_500, interfaces: ['8','9']}
+    - {vlan_id: '1600', name: ansible_1600, interfaces: ['10']}
+    purge: true
+  register: result
+- assert:
+    that:
+    - "result.requests[0].method == 'POST'"
+    - "result.requests[0].path == '/rest/restconf/data/openconfig-vlan:vlans/'"
+    - "result.requests[0].data"
+    - "result.requests[1].method == 'PATCH'"
+    - "result.requests[1].path == '/rest/restconf/data/openconfig-interfaces:interfaces/interface=8/openconfig--if-ethernet:ethernet/openconfig-vlan:switched-vlan/'"
+    - "result.requests[1].data"
+    - "result.requests[2].method == 'PATCH'"
+    - "result.requests[2].path == '/rest/restconf/data/openconfig-interfaces:interfaces/interface=9/openconfig--if-ethernet:ethernet/openconfig-vlan:switched-vlan/'"
+    - "result.requests[2].data"
+    - "result.requests[3].method == 'POST'"
+    - "result.requests[3].path == '/rest/restconf/data/openconfig-vlan:vlans/'"
+    - "result.requests[3].data"
+    - "result.requests[4].method == 'PATCH'"
+    - "result.requests[4].path == '/rest/restconf/data/openconfig-interfaces:interfaces/interface=10/openconfig--if-ethernet:ethernet/openconfig-vlan:switched-vlan/'"
+    - "result.requests[4].data"
+    - "result.requests[5].path == '/rest/restconf/data/openconfig-vlan:vlans/vlan=100'"
+    - "result.requests[5].method == 'DELETE'"
+
+- name: Teardown for aggregate
+  exos_config:
+    lines: 
+      - delete vlan 500
+      - delete vlan 1600
+
+- debug: msg="START EXOS_VLAN purge.yaml on connection={{ ansible_connection }}"
